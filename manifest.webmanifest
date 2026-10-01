@@ -1,6 +1,6 @@
 {
-  "name": "Painel de Estoque e Vendas",
-  "short_name": "Estoque",
+  "name": "Deshboard do Puff",
+  "short_name": "Puff",
   "description": "Controle de estoque, vendas, gastos e clientes",
   "start_url": "./",
   "scope": "./",

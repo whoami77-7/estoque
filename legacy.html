@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>Painel de Estoque</title>
+<meta name="mobile-web-app-capable" content="yes">
+<!-- iPhone: instala pelo Safari > Compartilhar > Adicionar a Tela de Inicio -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estoque">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAADEklEQVR42u3cwW0bQRBE0bn7ohCUkRNzzlIKginudFW/wY9g6gEEiN09fz4+pf/uuAIBJIAEkACSABJAAkgASQAJIAEkgCSABJAAEkASQAJIAN3s77+v1wOImN8MIGhgAuiqmz2SDjckARTgplXSQQejvYCi6XQwOuhgtAtQJZ1cRgcdjFYAWqUnyNBBB6NmQMv1zDd00MGoEBAuKYYOPQz1AOIjjtGhh6EGQECEGjr0MJQNCIJoQ4cehlIBGb7A0KGHoTxAxq4xdOhhKAmQgcsMAQRQDiDT9hk69DAUAMicrYYAAmg8IEMWGzr0MASQSgEZr97QoYchgFQHyGBLDAEE0DxAptpjCCCAhgEy0ipDAAE0CZB5thkCCKAxgAyz0BBAAAGkAkAm2WkIIIAAUjogY6w1BBBAACkakBk2GwIIIIAEkJYCMsByQwCpCJDzwwMQQAABBNCLgH79x9i5AugVQwABBBBAAAEEEEAAAQQQQAAB5AAEEEAAAQQQQAA5AAEEEEAAAQQQQA5AAAEEEEAAAQQQQAABBBBAAAEEkPfCAPJioQMQQAD5OoevcwCkAEAM+UIZQAABJIC0FBBDvlQPEECbAPmHsA3Qw4YAGqIHIIAAAqgD0JOGABqiByCAAAKoBtBjhgAaogcggIYBesYQQEP0AATQPEAPGAJoiB6AABoJ6N2GABqiByCApgJ6qyGAhugBCKDBgDyp2PTk4R1ADHXrAQig8YAYKtbzECCGWvUABFAIIIYq9TwKiKE+PU8DYqhMD0AApQFiqEnPHUAM1ei5BoihDj03ATFUoOcyIIbS9dwHxFC0nhGAGMrVMwUQQ6F6BgFiKFHPLEAMxekZBwijIDpzATGUomcuIIYi9IwGhNFwOhmAGBq+TgCgtYwidokBtM1QyihJgJYwypojD1Axo8QhUgGVMcqdIBtQAaP0y28AFMqo49p7AKVIKrvtQkAzJbVecjOgCZLq73YFoIcxrbrPdYDe4WnzBW4HJIAEkAASQBJAAkgACSAJIAEkgASQBJAAEkACSAJIAOl637p/t1iJuWE9AAAAAElFTkSuQmCC">
+<link rel="icon" href="icon.svg">
+<style>
+:root{
+  --bg:#0b1020; --card:#151c33; --card2:#1c2444; --line:#26304f;
+  --txt:#e8ecf7; --dim:#94a0c0; --acc:#4f8cff; --ok:#2ecc8f;
+  --warn:#ffb020; --bad:#ff5c72; --r:14px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);
+  font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{padding-bottom:96px}
+
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;
+  padding:14px 16px calc(14px + env(safe-area-inset-top)) 16px;background:var(--bg);
+  border-bottom:1px solid var(--line)}
+.brand{display:flex;flex-direction:column;flex:1;min-width:0}
+.brand strong{font-size:17px}
+.status{font-size:12px;color:var(--dim)}
+.status.erro{color:var(--bad)}
+.status.ok{color:var(--ok)}
+.icon{background:var(--card);border:1px solid var(--line);color:var(--txt);
+  width:40px;height:40px;border-radius:12px;font-size:19px;cursor:pointer}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:10px;padding:14px 16px 4px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.kpi small{display:block;color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.kpi b{font-size:20px;font-weight:700;display:block;margin-top:4px}
+.kpi.ok b{color:var(--ok)} .kpi.warn b{color:var(--warn)} .kpi.bad b{color:var(--bad)}
+
+.buscabar{padding:12px 16px 4px}
+.buscabar input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card);color:var(--txt);font-size:15px}
+
+.tabs{display:flex;gap:8px;overflow-x:auto;padding:12px 16px;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{white-space:nowrap;background:var(--card);border:1px solid var(--line);
+  color:var(--dim);padding:9px 15px;border-radius:999px;font-size:14px;cursor:pointer}
+.tabs button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+
+.lista{padding:4px 16px;display:flex;flex-direction:column;gap:10px}
+.vazio{color:var(--dim);text-align:center;padding:36px 10px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px}
+.card .l1{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.card .modelo{font-weight:600}
+.card .meta{color:var(--dim);font-size:13px;margin-top:3px}
+.card .vals{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:13px}
+.card .vals span{color:var(--dim)}
+.card .vals b{color:var(--txt)}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.acoes button{flex:1;min-width:88px;background:var(--card2);border:1px solid var(--line);
+  color:var(--txt);padding:9px;border-radius:10px;font-size:13px;cursor:pointer}
+.acoes button.p{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+.acoes button.d{color:var(--bad)}
+
+.tag{font-size:11px;padding:3px 9px;border-radius:999px;font-weight:600;white-space:nowrap}
+.tag.disponivel{background:rgba(79,140,255,.18);color:#8fb4ff}
+.tag.pendente{background:rgba(255,176,32,.18);color:var(--warn)}
+.tag.vendido{background:rgba(46,204,143,.18);color:var(--ok)}
+.tag.pago{background:rgba(46,204,143,.18);color:var(--ok)}
+.tag.areceber{background:rgba(255,92,114,.18);color:var(--bad)}
+
+.fab{position:fixed;right:18px;bottom:calc(22px + env(safe-area-inset-bottom));z-index:30;
+  width:58px;height:58px;border-radius:50%;border:none;background:var(--acc);color:#fff;
+  font-size:30px;line-height:1;box-shadow:0 8px 24px rgba(0,0,0,.45);cursor:pointer}
+
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:40;display:none}
+.overlay.on{display:block}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--card);
+  border-radius:20px 20px 0 0;padding:20px 18px calc(26px + env(safe-area-inset-bottom));
+  transform:translateY(110%);transition:transform .22s ease;max-height:88vh;overflow:auto}
+.sheet.on{transform:translateY(0)}
+.sheet h3{margin:0 0 14px;font-size:17px}
+.sheet label{display:block;font-size:12px;color:var(--dim);margin:12px 0 5px}
+.sheet input,.sheet select{width:100%;padding:12px;border-radius:11px;border:1px solid var(--line);
+  background:var(--card2);color:var(--txt);font-size:16px}
+.sheet .row{display:flex;gap:10px}
+.sheet .row>*{flex:1}
+.chk{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:14px}
+.chk input{width:20px;height:20px;flex:none}
+.botoes{display:flex;gap:10px;margin-top:20px}
+.botoes button{flex:1;padding:14px;border-radius:12px;border:1px solid var(--line);
+  background:var(--card2);color:var(--txt);font-size:15px;cursor:pointer}
+.botoes button.p{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+
+.toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,20px);z-index:60;
+  background:#0f1730;border:1px solid var(--line);padding:12px 18px;border-radius:12px;
+  opacity:0;transition:.2s;pointer-events:none;font-size:14px;max-width:88vw;text-align:center}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+.buscabar{position:relative}
+.sug{position:absolute;left:16px;right:16px;top:100%;margin-top:6px;z-index:25;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);display:none;max-height:52vh;overflow-y:auto}
+.sug.on{display:block}
+.sug button{display:flex;width:100%;justify-content:space-between;align-items:center;gap:10px;
+  background:none;border:0;border-bottom:1px solid var(--line);color:var(--txt);
+  padding:12px 14px;font-size:14px;text-align:left;cursor:pointer}
+.sug button:last-child{border-bottom:0}
+.sug button:hover,.sug button.sel{background:var(--card2)}
+.sug .qtd{font-size:12px;color:var(--dim);white-space:nowrap}
+.sug .qtd b{color:var(--ok)}
+.sug .qtd b.zero{color:var(--dim)}
+.sug .cab{padding:9px 14px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--dim);background:var(--card2)}
+.resumo{background:var(--card2);border:1px dashed var(--line);border-radius:var(--r);
+  padding:11px 14px;font-size:13px;color:var(--dim)}
+.resumo b{color:var(--txt)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+.chips button{background:var(--card);border:1px solid var(--line);color:var(--txt);
+  padding:6px 12px;border-radius:999px;font-size:12px;cursor:pointer}
+
+.instalar{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:55;background:var(--card2);border:1px solid var(--acc);border-radius:14px;
+  padding:13px 14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;
+  box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.instalar span{flex:1;min-width:160px}
+.instalar button{background:var(--card);border:1px solid var(--line);color:var(--txt);
+  padding:8px 14px;border-radius:10px;font-size:13px;cursor:pointer}
+.instalar button.p{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <strong>Painel de Estoque</strong>
+    <span id="status" class="status">carregando...</span>
+  </div>
+  <button id="btn-sync" class="icon" title="Atualizar">&#8635;</button>
+</header>
+
+<section id="kpis" class="kpis"></section>
+
+<div class="buscabar">
+  <input id="busca" type="search" autocomplete="off" placeholder="Digite as primeiras letras... ex: cli">
+  <div id="sugestoes" class="sug"></div>
+</div>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="estoque" class="on">Estoque</button>
+  <button data-tab="vendas">Vendas</button>
+  <button data-tab="receber">A receber</button>
+  <button data-tab="gastos">Gastos</button>
+  <button data-tab="clientes">Clientes</button>
+  <button data-tab="locais">Locais</button>
+</nav>
+
+<main id="conteudo" class="lista"><p class="vazio">carregando dados...</p></main>
+
+<button id="fab" class="fab">+</button>
+
+<div id="overlay" class="overlay"></div>
+<div id="sheet" class="sheet"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* Painel de Estoque e Vendas - PWA
+   Banco de dados: planilha Google (via API do Apps Script) */
+
+const CONFIG = {
+  API: 'https://script.google.com/macros/s/AKfycbzAb-D01oLo_xwI_V20ViUFmcmW05I3zTOdBAc8-P05KLJNuAqHBheNmTcPvpfAIIP0/exec',
+  // A chave NAO fica no codigo (o site e publico). Cada aparelho digita uma vez
+  // e ela fica guardada so naquele celular.
+  get TOKEN() { return localStorage.getItem('chave') || ''; }
+};
+
+function pedirChave(msg) {
+  abrirSheet(`<h3>Chave de acesso</h3>
+    <div class="meta">${msg || 'Digite a chave do painel. Voce so faz isso uma vez neste aparelho.'}</div>
+    <label>Chave</label><input id="k-tok" type="password" autocomplete="off" placeholder="cole a chave aqui">
+    <div class="botoes"><button class="p" onclick="salvarChave()">Entrar</button></div>`);
+}
+function salvarChave() {
+  const v = ($('#k-tok').value || '').trim();
+  if (!v) return toast('cole a chave');
+  localStorage.setItem('chave', v);
+  fecharSheet();
+  carregar();
+}
+function trocarChave() { localStorage.removeItem('chave'); pedirChave('A chave mudou ou estava errada. Digite de novo.'); }
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dataBR = iso => iso ? iso.split('-').reverse().join('/') : '';
+const hoje = () => new Date().toISOString().slice(0, 10);
+// tira acento e caixa: "Climax" e "climáx" viram "climax"
+const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+// casa se QUALQUER palavra do texto comeca com o que foi digitado ("cli" -> "Climax 12 mil")
+const casa = (texto, q) => {
+  const t = norm(texto), termos = norm(q).split(/\s+/).filter(Boolean);
+  if (!termos.length) return true;
+  const palavras = t.split(/[^a-z0-9]+/).filter(Boolean);
+  return termos.every(termo => palavras.some(p => p.startsWith(termo)) || t.includes(termo));
+};
+
+let DADOS = null;
+let ABA = 'estoque';
+let BUSCA = '';
+let FILA = JSON.parse(localStorage.getItem('fila') || '[]');
+
+/* ---------------------- rede ---------------------- */
+
+async function chamar(acao, payload = {}) {
+  const body = JSON.stringify(Object.assign({ acao, token: CONFIG.TOKEN }, payload));
+  const r = await fetch(CONFIG.API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita preflight CORS
+    body
+  });
+  const j = await r.json();
+  if (!j.ok) {
+    if (/token/i.test(j.erro || '')) { trocarChave(); throw new Error('chave invalida'); }
+    throw new Error(j.erro || 'erro na API');
+  }
+  return j.dados;
+}
+
+async function carregar({ silencioso = false } = {}) {
+  if (!silencioso) setStatus('sincronizando...');
+  try {
+    await escoarFila();
+    DADOS = await chamar('dados');
+    localStorage.setItem('cache', JSON.stringify(DADOS));
+    setStatus('atualizado ' + new Date().toLocaleTimeString('pt-BR').slice(0, 5), 'ok');
+  } catch (e) {
+    const c = localStorage.getItem('cache');
+    if (c && !DADOS) DADOS = JSON.parse(c);
+    setStatus(navigator.onLine ? 'erro: ' + e.message : 'offline - mostrando cache', 'erro');
+  }
+  render();
+}
+
+/* fila de escritas feitas offline */
+async function escoarFila() {
+  while (FILA.length) {
+    const t = FILA[0];
+    await chamar(t.acao, t.payload);
+    FILA.shift();
+    localStorage.setItem('fila', JSON.stringify(FILA));
+  }
+}
+
+async function acao(acaoNome, payload, msg) {
+  try {
+    if (!navigator.onLine) {
+      FILA.push({ acao: acaoNome, payload });
+      localStorage.setItem('fila', JSON.stringify(FILA));
+      toast('offline - salvo na fila');
+      return;
+    }
+    await chamar(acaoNome, payload);
+    toast(msg || 'pronto');
+    await carregar({ silencioso: true });
+  } catch (e) {
+    toast('erro: ' + e.message);
+  }
+}
+
+/* ---------------------- ui base ---------------------- */
+
+function setStatus(txt, cls = '') { const s = $('#status'); s.textContent = txt; s.className = 'status ' + cls; }
+let toastT;
+function toast(m) {
+  const t = $('#toast'); t.textContent = m; t.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2600);
+}
+function abrirSheet(html) {
+  $('#sheet').innerHTML = html;
+  $('#sheet').classList.add('on'); $('#overlay').classList.add('on');
+}
+function fecharSheet() { $('#sheet').classList.remove('on'); $('#overlay').classList.remove('on'); }
+
+/* ---------------------- render ---------------------- */
+
+function render() {
+  if (!DADOS) return;
+  renderKpis();
+  const c = $('#conteudo');
+  const fns = { estoque: vEstoque, vendas: vVendas, receber: vReceber, gastos: vGastos, clientes: vClientes, locais: vLocais };
+  c.innerHTML = fns[ABA]();
+}
+
+function renderKpis() {
+  const k = DADOS.kpis;
+  $('#kpis').innerHTML = [
+    kpi('Disponivel', k.disponivel),
+    kpi('Pendente', k.pendente, 'warn'),
+    kpi('Vendido', k.vendido, 'ok'),
+    kpi('Investido no estoque', money(k.investido)),
+    kpi('Lucro total', money(k.lucroTotal), 'ok'),
+    kpi('Gastos', money(k.gastosTotal), 'bad'),
+    kpi('Lucro liquido', money(k.lucroLiquido), k.lucroLiquido >= 0 ? 'ok' : 'bad'),
+    kpi('A receber', money(k.aReceber), k.aReceber > 0 ? 'bad' : '')
+  ].join('');
+}
+const kpi = (l, v, cls = '') => `<div class="kpi ${cls}"><small>${esc(l)}</small><b>${esc(v)}</b></div>`;
+
+function filtra(itens) {
+  if (!BUSCA) return itens;
+  return itens.filter(i => casa(i.modelo + ' ' + i.cliente + ' ' + i.local, BUSCA));
+}
+
+/* agrupa o estoque por modelo, para responder "tem climax?" na hora */
+function agrupaModelos(q) {
+  const mapa = {};
+  DADOS.itens.forEach(i => {
+    const s = i.situacao.toLowerCase();
+    if (s === 'vendido') return;
+    if (q && !casa(i.modelo, q)) return;
+    const k = i.modelo || '(sem modelo)';
+    if (!mapa[k]) mapa[k] = { modelo: k, disponivel: 0, pendente: 0, locais: {}, venda: i.venda };
+    if (s === 'pendente') mapa[k].pendente++; else mapa[k].disponivel++;
+    if (i.local) mapa[k].locais[i.local] = (mapa[k].locais[i.local] || 0) + 1;
+  });
+  return Object.values(mapa).sort((a, b) => b.disponivel - a.disponivel || a.modelo.localeCompare(b.modelo));
+}
+
+function cardItem(it) {
+  const vendido = it.situacao.toLowerCase() === 'vendido';
+  const pago = it.pagamento === 'Recebido';
+  return `<div class="card">
+    <div class="l1">
+      <div>
+        <div class="modelo">${esc(it.modelo || '(sem modelo)')}</div>
+        <div class="meta">${esc(it.local || 'sem local')}${it.cliente ? ' &middot; ' + esc(it.cliente) : ''}
+          ${it.dataVenda ? ' &middot; ' + dataBR(it.dataVenda) : (it.dataPasse ? ' &middot; entrada ' + dataBR(it.dataPasse) : '')}</div>
+      </div>
+      <span class="tag ${esc(it.situacao.toLowerCase())}">${esc(it.situacao || 'sem status')}</span>
+    </div>
+    <div class="vals">
+      <span>compra <b>${money(it.compra)}</b></span>
+      <span>venda <b>${money(it.venda)}</b></span>
+      <span>lucro <b>${money(it.lucro)}</b></span>
+      ${vendido ? `<span class="tag ${pago ? 'pago' : 'areceber'}">${pago ? 'recebido' : 'a receber'}</span>` : ''}
+    </div>
+    <div class="acoes">
+      ${vendido
+        ? `<button onclick="marcarPag(${it.row},${pago ? 'false' : 'true'})">${pago ? 'Marcar a receber' : 'Marcar recebido'}</button>`
+        : `<button class="p" onclick="sheetVender(${it.row})">Vender</button>`}
+      <button onclick="sheetLocal(${it.row})">Local</button>
+      <button class="d" onclick="excluir(${it.row})">Excluir</button>
+    </div>
+  </div>`;
+}
+
+const vazio = m => `<p class="vazio">${m}</p>`;
+
+function vEstoque() {
+  const l = filtra(DADOS.itens.filter(i => i.situacao.toLowerCase() !== 'vendido'));
+  let topo = '';
+  if (BUSCA) {
+    const g = agrupaModelos(BUSCA);
+    const total = g.reduce((a, x) => a + x.disponivel, 0);
+    topo = `<div class="resumo">Busca <b>"${esc(BUSCA)}"</b>: <b>${total}</b> aparelho(s) disponivel(is)
+      em <b>${g.length}</b> modelo(s).<div class="chips">` +
+      g.slice(0, 8).map(x => `<button onclick="usarBusca('${esc(x.modelo).replace(/'/g, "\\'")}')">${esc(x.modelo)} &middot; ${x.disponivel}</button>`).join('') +
+      `</div></div>`;
+  }
+  return topo + (l.length ? l.map(cardItem).join('') : vazio('Nao achei nada com esse termo.'));
+}
+function vVendas() {
+  const l = filtra(DADOS.itens.filter(i => i.situacao.toLowerCase() === 'vendido'))
+    .sort((a, b) => (b.dataVenda || '').localeCompare(a.dataVenda || ''));
+  return l.length ? l.map(cardItem).join('') : vazio('Nenhuma venda registrada.');
+}
+function vReceber() {
+  const l = filtra(DADOS.itens.filter(i => i.situacao.toLowerCase() === 'vendido' && i.pagamento !== 'Recebido'));
+  return l.length ? l.map(cardItem).join('') : vazio('Tudo recebido. 👌');
+}
+function vGastos() {
+  const l = DADOS.gastos.filter(g => !BUSCA || (g.descricao + g.aparelho).toLowerCase().includes(BUSCA.toLowerCase()));
+  if (!l.length) return vazio('Nenhum gasto lancado.');
+  return l.map(g => `<div class="card"><div class="l1">
+      <div><div class="modelo">${esc(g.descricao)}</div>
+      <div class="meta">${dataBR(g.data)}${g.aparelho ? ' &middot; ' + esc(g.aparelho) : ''}</div></div>
+      <b>${money(g.valor)}</b></div>
+    <div class="acoes"><button class="d" onclick="excluirGasto(${g.row})">Excluir</button></div></div>`).join('');
+}
+function vClientes() {
+  const l = DADOS.clientes.filter(c => !BUSCA || c.nome.toLowerCase().includes(BUSCA.toLowerCase()));
+  if (!l.length) return vazio('Nenhum cliente ainda.');
+  return l.map(c => `<div class="card"><div class="l1">
+    <div><div class="modelo">${esc(c.nome)}</div><div class="meta">${c.qtd} aparelho(s) &middot; ${money(c.valor)}</div></div>
+    <b>${money(c.lucro)}</b></div></div>`).join('');
+}
+function vLocais() {
+  const l = DADOS.resumoLocais.filter(x => x.nome);
+  if (!l.length) return vazio('Nenhum local cadastrado.');
+  return l.map(x => `<div class="card"><div class="l1">
+    <div><div class="modelo">${esc(x.nome)}</div>
+    <div class="meta">${x.disponivel} disponivel &middot; ${x.pendente} pendente &middot; ${x.vendido} vendidos</div></div>
+    </div></div>`).join('');
+}
+
+/* ---------------------- acoes / formularios ---------------------- */
+
+const opcoesLocal = (sel = '') => DADOS.locais
+  .map(l => `<option ${l === sel ? 'selected' : ''}>${esc(l)}</option>`).join('') +
+  `<option value="__novo">+ Criar local novo...</option>`;
+
+function sheetNovo() {
+  abrirSheet(`<h3>Novo aparelho</h3>
+    <label>Modelo</label><input id="n-mod" placeholder="Ex: Conlux 12 mil 220 + kit">
+    <div class="row">
+      <div><label>Quantidade</label><input id="n-qtd" type="number" value="1" min="1"></div>
+      <div><label>Data de entrada</label><input id="n-dt" type="date" value="${hoje()}"></div>
+    </div>
+    <label>Local</label><select id="n-sel" onchange="if(this.value=='__novo')document.getElementById('n-novo').style.display='block'">${opcoesLocal()}</select>
+    <input id="n-novo" style="display:none;margin-top:8px" placeholder="Nome do local novo">
+    <div class="row">
+      <div><label>Valor de compra</label><input id="n-val" type="number" inputmode="decimal" step="0.01"></div>
+      <div><label>Venda pretendida</label><input id="n-vend" type="number" inputmode="decimal" step="0.01"></div>
+    </div>
+    <div class="botoes"><button onclick="fecharSheet()">Cancelar</button>
+      <button class="p" onclick="salvarNovo()">Adicionar</button></div>`);
+}
+function salvarNovo() {
+  const sel = $('#n-sel').value;
+  const local = sel === '__novo' ? $('#n-novo').value.trim() : sel;
+  const modelo = $('#n-mod').value.trim();
+  if (!modelo) return toast('informe o modelo');
+  fecharSheet();
+  acao('novo', { modelo, local, qtd: $('#n-qtd').value, dataPasse: $('#n-dt').value,
+    compra: $('#n-val').value, venda: $('#n-vend').value }, 'aparelho adicionado');
+}
+
+function sheetVender(row) {
+  const it = DADOS.itens.find(i => i.row === row);
+  const nomes = [...new Set(DADOS.clientes.map(c => c.nome))].map(n => `<option value="${esc(n)}">`).join('');
+  abrirSheet(`<h3>Registrar venda</h3>
+    <div class="meta">${esc(it.modelo)} &middot; ${esc(it.local)}</div>
+    <label>Cliente</label><input id="v-cli" list="lcli" placeholder="Nome do cliente"><datalist id="lcli">${nomes}</datalist>
+    <div class="row">
+      <div><label>Valor da venda</label><input id="v-val" type="number" inputmode="decimal" step="0.01" value="${it.venda || ''}"></div>
+      <div><label>Data da venda</label><input id="v-dt" type="date" value="${hoje()}"></div>
+    </div>
+    <div class="chk"><input type="checkbox" id="v-pag"><label for="v-pag" style="margin:0">Ja recebido</label></div>
+    <label>Gasto imprevisto nessa venda (opcional)</label>
+    <div class="row"><input id="v-gdesc" placeholder="O que foi"><input id="v-gval" type="number" inputmode="decimal" step="0.01" placeholder="Valor"></div>
+    <div class="botoes"><button onclick="fecharSheet()">Cancelar</button>
+      <button class="p" onclick="salvarVenda(${row})">Confirmar venda</button></div>`);
+}
+function salvarVenda(row) {
+  const p = { row, cliente: $('#v-cli').value.trim(), valorVenda: $('#v-val').value,
+    dataVenda: $('#v-dt').value, pagamento: $('#v-pag').checked,
+    gastoValor: $('#v-gval').value, gastoDesc: $('#v-gdesc').value };
+  if (!p.valorVenda) return toast('informe o valor da venda');
+  fecharSheet();
+  acao('vender', p, 'venda registrada');
+}
+
+function sheetLocal(row) {
+  const it = DADOS.itens.find(i => i.row === row);
+  abrirSheet(`<h3>Trocar local</h3><div class="meta">${esc(it.modelo)}</div>
+    <label>Local</label><select id="l-sel" onchange="if(this.value=='__novo')document.getElementById('l-novo').style.display='block'">${opcoesLocal(it.local)}</select>
+    <input id="l-novo" style="display:none;margin-top:8px" placeholder="Nome do local novo">
+    <div class="botoes"><button onclick="fecharSheet()">Cancelar</button>
+      <button class="p" onclick="salvarLocal(${row})">Salvar</button></div>`);
+}
+function salvarLocal(row) {
+  const sel = $('#l-sel').value;
+  const v = sel === '__novo' ? $('#l-novo').value.trim() : sel;
+  fecharSheet();
+  acao('campo', { row, campo: 'local', valor: v }, 'local atualizado');
+}
+
+function sheetGasto() {
+  abrirSheet(`<h3>Novo gasto</h3>
+    <label>O que foi</label><input id="g-desc" placeholder="Ex: frete, suporte, gas">
+    <div class="row">
+      <div><label>Valor</label><input id="g-val" type="number" inputmode="decimal" step="0.01"></div>
+      <div><label>Data</label><input id="g-dt" type="date" value="${hoje()}"></div>
+    </div>
+    <label>Aparelho (opcional)</label><input id="g-ap" placeholder="(gasto geral, sem aparelho)">
+    <div class="botoes"><button onclick="fecharSheet()">Cancelar</button>
+      <button class="p" onclick="salvarGasto()">Lancar gasto</button></div>`);
+}
+function salvarGasto() {
+  const descricao = $('#g-desc').value.trim();
+  if (!descricao) return toast('descreva o gasto');
+  const p = { descricao, valor: $('#g-val').value, data: $('#g-dt').value, aparelho: $('#g-ap').value.trim() };
+  fecharSheet();
+  acao('gasto', p, 'gasto lancado');
+}
+
+function marcarPag(row, valor) { acao('campo', { row, campo: 'pagamento', valor }, 'pagamento atualizado'); }
+function excluir(row) {
+  const it = DADOS.itens.find(i => i.row === row);
+  abrirSheet(`<h3>Excluir aparelho</h3>
+    <div class="meta">${esc(it.modelo)} &middot; ${esc(it.local)}<br>Vai para o historico de exclusoes e pode ser restaurado.</div>
+    <div class="botoes"><button onclick="fecharSheet()">Cancelar</button>
+      <button class="p" style="background:var(--bad);border-color:var(--bad)" onclick="fecharSheet();acao('excluir',{row:${row}},'excluido')">Excluir</button></div>`);
+}
+function excluirGasto(row) { acao('gastoExcluir', { row }, 'gasto excluido'); }
+
+/* ---------------------- eventos ---------------------- */
+
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...$('#tabs').children].forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); ABA = b.dataset.tab; render();
+});
+function renderSugestoes(q) {
+  const box = $('#sugestoes');
+  if (!q || !DADOS) { box.classList.remove('on'); box.innerHTML = ''; return; }
+  const modelos = agrupaModelos(q).slice(0, 8);
+  const clientes = DADOS.clientes.filter(c => casa(c.nome, q)).slice(0, 4);
+  const locais = DADOS.resumoLocais.filter(l => l.nome && casa(l.nome, q)).slice(0, 4);
+  if (!modelos.length && !clientes.length && !locais.length) {
+    box.innerHTML = `<div class="cab">nada encontrado para "${esc(q)}"</div>`;
+    box.classList.add('on'); return;
+  }
+  let h = '';
+  if (modelos.length) {
+    h += `<div class="cab">No estoque</div>`;
+    h += modelos.map(m => {
+      const onde = Object.keys(m.locais).map(k => k + ' (' + m.locais[k] + ')').join(', ');
+      return `<button onclick="usarBusca(this.dataset.v)" data-v="${esc(m.modelo)}">
+        <span>${esc(m.modelo)}<br><span class="qtd">${esc(onde || 'sem local')}</span></span>
+        <span class="qtd"><b class="${m.disponivel ? '' : 'zero'}">${m.disponivel}</b> disp.${m.pendente ? ' / ' + m.pendente + ' pend.' : ''}</span></button>`;
+    }).join('');
+  }
+  if (clientes.length) {
+    h += `<div class="cab">Clientes</div>` + clientes.map(c =>
+      `<button onclick="usarBusca(this.dataset.v)" data-v="${esc(c.nome)}"><span>${esc(c.nome)}</span>
+       <span class="qtd">${c.qtd} compra(s)</span></button>`).join('');
+  }
+  if (locais.length) {
+    h += `<div class="cab">Locais</div>` + locais.map(l =>
+      `<button onclick="usarBusca(this.dataset.v)" data-v="${esc(l.nome)}"><span>${esc(l.nome)}</span>
+       <span class="qtd"><b>${l.disponivel}</b> disp.</span></button>`).join('');
+  }
+  box.innerHTML = h;
+  box.classList.add('on');
+}
+
+function usarBusca(v) {
+  $('#busca').value = v; BUSCA = v;
+  $('#sugestoes').classList.remove('on');
+  if (ABA !== 'estoque') { ABA = 'estoque';
+    [...$('#tabs').children].forEach(x => x.classList.toggle('on', x.dataset.tab === 'estoque')); }
+  render();
+}
+
+$('#busca').addEventListener('input', e => {
+  BUSCA = e.target.value.trim();
+  renderSugestoes(BUSCA);
+  render();
+});
+$('#busca').addEventListener('focus', () => renderSugestoes($('#busca').value.trim()));
+document.addEventListener('click', e => {
+  if (!e.target.closest('.buscabar')) $('#sugestoes').classList.remove('on');
+});
+$('#btn-sync').addEventListener('click', () => carregar());
+$('#overlay').addEventListener('click', fecharSheet);
+$('#fab').addEventListener('click', () => ABA === 'gastos' ? sheetGasto() : sheetNovo());
+window.addEventListener('online', () => carregar());
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+/* dica de instalacao: iPhone nao tem botao automatico, Android tem */
+let promptInstalar = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptInstalar = e; mostrarInstalar(); });
+function ehIOS() { return /iphone|ipad|ipod/i.test(navigator.userAgent); }
+function instalado() { return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone; }
+function mostrarInstalar() {
+  if (instalado() || localStorage.getItem('semInstalar')) return;
+  if (!promptInstalar && !ehIOS()) return;
+  const d = document.createElement('div');
+  d.className = 'instalar';
+  d.innerHTML = ehIOS()
+    ? `<span>Para instalar: toque em <b>Compartilhar</b> e depois em <b>Adicionar a Tela de Inicio</b>.</span><button>ok</button>`
+    : `<span>Instalar o app na tela inicial?</span><button class="p">Instalar</button><button>agora nao</button>`;
+  d.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    if (b.classList.contains('p') && promptInstalar) { promptInstalar.prompt(); promptInstalar = null; }
+    else localStorage.setItem('semInstalar', '1');
+    d.remove();
+  });
+  document.body.appendChild(d);
+}
+setTimeout(() => { if (ehIOS()) mostrarInstalar(); }, 2500);
+
+const cache = localStorage.getItem('cache');
+if (cache) { DADOS = JSON.parse(cache); render(); }
+if (!CONFIG.TOKEN) { setStatus('precisa da chave', 'erro'); pedirChave(); }
+else carregar();
+
+</script>
+</body>
+</html>
