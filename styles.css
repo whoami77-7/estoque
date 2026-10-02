@@ -453,6 +453,9 @@ dialog::backdrop { background: #030815ba; }
 .note-content > summary { min-width: 0; }
 .note-content > summary > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .note-source { margin: 0 0 18px; color: var(--dim); font-size: 13px; }
+.note-card .note-delete { color: var(--bad); }
+.notes-trash { margin-top: 24px; border-top: 1px solid var(--line); }
+.notes-trash > summary { cursor: pointer; min-height: 44px; padding: 14px 0; color: var(--dim); }
 .note-source > summary { cursor: pointer; min-height: 44px; padding: 10px 0; }
 .note-source .note-text { max-height: 220px; overflow-y: auto; margin-top: 4px; padding: 10px 14px; background: var(--bg); border-radius: 8px; }
 .note-destinations { display: flex; flex-direction: column; gap: 10px; }

@@ -375,6 +375,7 @@ function attachNote(note, message, warnings=[]) {
 }
 function noteEditor(id) {
   const note=(state.notes||[]).find(n=>n.id===id);
+  if(note?.deletedAt)throw new Error('Restaure a anotação pela lixeira antes de editar.');
   if(note?.convertedTo){openNoteTarget(note);return;}
   let drafts={};try{drafts=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};}catch{}
   const draftKey=id||'new', form=noteForm({...note,text:drafts[draftKey]??note?.text??''});
@@ -391,8 +392,18 @@ function noteEditor(id) {
 }
 function noteDestination(id) {
   const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
+  if(note.deletedAt)throw new Error('Restaure a anotação pela lixeira antes de organizar.');
   if(note.convertedTo){openNoteTarget(note);return;}
   openDialog('Para onde vai esta anotação?',`<p class="help">Escolha o destino. Você revisa os campos antes de confirmar.</p><div class="note-destinations"><button type="button" data-action="note-to-shipment" data-id="${esc(id)}"><span aria-hidden="true">🚚</span><span><strong>Envios</strong><small>Transporte, cliente e mercadorias por mês</small></span><span aria-hidden="true">→</span></button><button type="button" data-action="note-to-debt" data-id="${esc(id)}"><span aria-hidden="true">💰</span><span><strong>Financeiro</strong><small>Registrar uma dívida / valor a receber</small></span><span aria-hidden="true">→</span></button><button type="button" data-action="note-to-stock" data-id="${esc(id)}"><span aria-hidden="true">📦</span><span><strong>Estoque</strong><small>Cadastrar mercadoria ou registrar entrada e saída</small></span><span aria-hidden="true">→</span></button></div><div class="card-actions"><button type="button" class="secondary" data-action="note-share" data-id="${esc(id)}">Compartilhar texto</button><button type="button" class="ghost" data-action="note-copy" data-id="${esc(id)}">Copiar</button></div>`,null,null);
+}
+function noteTrash(id,restore=false) {
+  const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
+  if(Boolean(note.deletedAt)!==restore)throw new Error('Esta anotação mudou. Atualize o painel.');
+  openDialog(restore?'Restaurar anotação':'Excluir anotação?',`<p>${restore?'A anotação volta para sua lista.':'A anotação vai para a lixeira. Você pode restaurá-la depois.'}</p>${note.convertedTo?'<p class="help">O registro que ela gerou continua no painel, sem alterações.</p>':''}<p class="notes note-text">${esc(note.text)}</p>`,restore?'Restaurar anotação':'Excluir anotação',async()=>{
+    await save(restore?'puffNotaRestaurar':'puffNotaExcluir',{noteId:id,expected:note,input:{}});
+    if(!restore)try{const drafts=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};delete drafts[id];localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(drafts));}catch{}
+    view='anotacoes';search='';$('#search').value='';render();toast(restore?'Anotação restaurada.':'Anotação movida para a lixeira.');
+  });
 }
 function noteStockDestination(note) {
   const draft=noteToShipment(note,today());
@@ -458,10 +469,12 @@ document.addEventListener('click',e=>{
   try {
   if(a==='note-new'||a==='note-edit'){noteEditor(id);return;}
   if(a==='note-convert'){noteDestination(id);return;}
+  if(a==='note-delete'||a==='note-restore'){noteTrash(id,a==='note-restore');return;}
   if(a==='note-share'||a==='note-copy'){shareNote(id,a==='note-copy').catch(error=>toast(error.message));return;}
   if(a==='note-open'||a.startsWith('note-to-')){
     const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
     if(a==='note-open'){openNoteTarget(note);return;}
+    if(note.deletedAt)throw new Error('Restaure a anotação pela lixeira antes de organizar.');
     if(!writable)throw new Error('Atualize a conexão antes de organizar a anotação.');
     if(note.convertedTo){openNoteTarget(note);return;}
     if(a==='note-to-shipment')shipmentEditor(undefined,note);

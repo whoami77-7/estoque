@@ -199,14 +199,28 @@ export function addNote(state, input) {
 export function updateNote(state, id, input) {
   const note = (state.notes || []).find(item => item.id === id);
   if (!note) throw new Error('Anotação não encontrada.');
+  if (note.deletedAt !== undefined) throw new Error('Esta anotação foi excluída. Restaure antes de editar ou converter.');
   if (note.convertedTo) throw new Error('Esta anotação já foi convertida. Abra o lançamento para fazer ajustes.');
   Object.assign(note, noteFields({ ...note, ...input }), { updatedAt: new Date().toISOString() });
+  return note;
+}
+
+export function setNoteDeleted(state, id, deleted) {
+  const note = (state.notes || []).find(item => item.id === id);
+  if (!note) throw new Error('Anotação não encontrada.');
+  if (typeof deleted !== 'boolean') throw new Error('Estado de exclusão inválido.');
+  if (deleted === (note.deletedAt !== undefined)) throw new Error(deleted ? 'Esta anotação já está excluída.' : 'Esta anotação não está excluída.');
+  const timestamp = new Date(Math.max(Date.now(), Date.parse(note.updatedAt || note.createdAt) + 1)).toISOString();
+  if (deleted) note.deletedAt = timestamp;
+  else delete note.deletedAt;
+  note.updatedAt = timestamp;
   return note;
 }
 
 export function markNoteConverted(state, noteId, type, targetId) {
   const note = (state.notes || []).find(item => item.id === noteId);
   if (!note) throw new Error('Anotação não encontrada.');
+  if (note.deletedAt !== undefined) throw new Error('Esta anotação foi excluída. Restaure antes de editar ou converter.');
   if (note.convertedTo) throw new Error('Esta anotação já foi convertida. Abra o lançamento existente.');
   const target = ({ shipment: state.shipments, debt: state.debts, movement: state.movements, product: state.products }[type] || []).find(item => item.id === targetId);
   if (!target || target.sourceNoteId) throw new Error('Destino da anotação inválido.');
@@ -269,6 +283,10 @@ export function validateState(state) {
     identify(note, true); noteFields(note);
     if (note.updatedAt !== undefined && (typeof note.updatedAt !== 'string' || !Number.isFinite(Date.parse(note.updatedAt)))) {
       throw new Error('Anotação sem data de atualização válida.');
+    }
+    if (note.deletedAt !== undefined && (typeof note.deletedAt !== 'string' || !Number.isFinite(Date.parse(note.deletedAt)) ||
+        new Date(note.deletedAt).toISOString() !== note.deletedAt)) {
+      throw new Error('Anotação sem data de exclusão válida.');
     }
     if (note.convertedTo !== undefined) {
       const target = note.convertedTo && ({ shipment: state.shipments, debt: state.debts, movement: state.movements, product: state.products }[note.convertedTo.type] || [])
