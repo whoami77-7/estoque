@@ -23,23 +23,19 @@
         </div>
       </div>
       <div class="header-actions">
+        <button id="exchange-rate" class="secondary" type="button">R$ ⇄ US$ · Câmbio</button>
         <button id="refresh" class="ghost" type="button">↻ Atualizar</button>
         <button id="reconcile" class="secondary" type="button" hidden>Conferir operação</button>
-        <button id="export-backup" class="secondary" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg><span>Backup</span></button>
       </div>
     </header>
 
-    <nav class="tabs" aria-label="Seções do painel">
-      <button type="button" data-view="estoque" class="active" aria-current="page">📦 Estoque</button>
-      <button type="button" data-view="vendas">💸 Vendas</button>
-      <button type="button" data-view="mercadorias" class="new-module">🛍️ Mercadorias <span class="new-label">Novo</span></button>
-      <button type="button" data-view="devedores" class="new-module">🤝 Devedores <span class="new-label">Novo</span></button>
-      <button type="button" data-view="receber">💰 A receber</button>
-      <button type="button" data-view="gastos">🧾 Gastos</button>
-      <button type="button" data-view="clientes">👥 Clientes</button>
-      <button type="button" data-view="locais">📍 Locais</button>
-      <button type="button" data-view="decisao" class="decision-tab">✨ Tomada de decisão</button>
+    <nav class="tabs main-tabs" aria-label="Seções do painel">
+      <button type="button" data-section="estoque" class="active" aria-current="page">📦 Estoque</button>
+      <button type="button" data-section="envios">🚚 Envios</button>
+      <button type="button" data-section="financeiro">💰 Financeiro</button>
+      <details class="nav-more" id="more-sections"><summary>Mais</summary><div class="more-options"><button type="button" data-view="clientes">👥 Clientes</button><button type="button" data-view="locais">📍 Locais</button><button type="button" data-view="decisao" class="decision-tab">✨ Tomada de decisão</button></div></details>
     </nav>
+    <nav class="section-tabs" id="section-tabs" aria-label="Opções da seção"></nav>
 
     <main>
       <div class="toolbar">
@@ -50,14 +46,17 @@
         <button id="new-entry" type="button" class="primary"><span aria-hidden="true">+</span> Novo produto</button>
       </div>
 
+      <p class="help exchange-note" id="exchange-note"></p>
       <section id="summary" aria-label="Resumo"></section>
 
       <div class="filter-bar">
+        <label class="month-field" for="shipment-month" hidden><span>Mês dos envios</span><input id="shipment-month" type="month"></label>
         <label class="search-field" for="search">
           <span class="sr-only">Buscar produto, cliente ou observação</span>
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
           <input id="search" type="search" placeholder="Buscar produto, cliente ou observação" autocomplete="off">
         </label>
+        <details class="filter-options" id="filter-options"><summary id="filter-options-title">Filtros</summary><div class="filter-controls">
         <label class="stock-field" for="stock-filter">
           <span>Estoque</span>
           <select id="stock-filter">
@@ -75,11 +74,13 @@
             <option value="Depósito SP">Depósito SP</option>
           </select>
         </label>
+        <button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>
+        </div></details>
       </div>
 
       <div id="content" tabindex="-1"></div>
     </main>
-    <footer class="app-footer"><div class="footer-tools"><a href="legacy.html">Versão anterior e arquivados</a><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p></footer>
+    <footer class="app-footer"><details class="footer-settings"><summary>Configurações e histórico</summary><div class="footer-tools"><button type="button" class="ghost" data-view="arquivados">Arquivados</button><button id="export-backup" class="ghost" type="button">Baixar backup</button><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div></details><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p></footer>
   </div>
 
   <dialog id="editor" aria-labelledby="dialog-title">

@@ -1,3 +1,4 @@
+import { formatMoney } from './money.mjs';
 const SOUND_KEY = 'painel-puff:sound';
 let enabled = true, context, initialized = false, hideTimer, balanceTimer, previousBalance;
 try { enabled = localStorage.getItem(SOUND_KEY) !== 'off'; } catch { /* A confirmação visual funciona sem armazenamento. */ }
@@ -91,7 +92,7 @@ export function setAlissonBalance(cents) {
   onReady(() => {
     const target = document.querySelector('#alisson-balance strong');
     if (!target) return;
-    target.textContent = (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+    target.textContent = formatMoney(cents, 'USD');
     if (previousBalance !== undefined && cents > previousBalance && !reducedMotion()) {
       clearTimeout(balanceTimer); target.classList.remove('feedback-balance-up');
       void target.offsetWidth;

@@ -1,11 +1,14 @@
 import { LOCATIONS, validateState, balance, debtBalance } from './model.mjs';
-import { legacyCards, legacyView, legacyForm, legacyPaymentAction, legacyDeleteAction, legacyExpenseDeleteAction } from './legacy.mjs';
+import { legacyCards, legacyView, legacyForm, legacyPaymentAction, legacyDeleteAction, legacyExpenseDeleteAction, legacyRestoreAction } from './legacy.mjs';
 import { classifyCategory, decisionView } from './analytics.mjs';
 import { setupFeedback, unlockSound, reward, setAlissonBalance } from './feedback.mjs';
+import { currencyOf, formatMoney, convertCents } from './money.mjs';
+import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm } from './currency-ui.mjs';
+import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const money = cents => (cents / 100).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+const money = formatMoney;
 const dateBR = date => date ? date.split('-').reverse().join('/') : '—';
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const normalize = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -16,6 +19,8 @@ let token = localStorage.getItem('chave') || '', state = {version:1,products:[],
 let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, pendingOperation;
 try{pendingOperation=JSON.parse(localStorage.getItem(PENDING_KEY));}catch{}
 let modulesLoaded=false;
+let decisionCurrency=localStorage.getItem('puff:decision-currency')==='USD'?'USD':'BRL';
+let shipmentMonth=today().slice(0,7);
 try{const cache=JSON.parse(localStorage.getItem(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
 const locations = () => [...new Set([...LOCATIONS,...(legacy.locais || []),...state.movements.flatMap(m=>[m.location,m.toLocation])].filter(Boolean))];
 const status = text => { $('#connection-status').textContent = text; };
@@ -38,13 +43,14 @@ async function load() {
     let extra;
     try { extra = await api('puffDados'); validateState(extra); modulesReady=true;modulesLoaded=true; }
     catch(error) { modulesReady=false; extra=state; toast('Estoque carregado. Módulos novos aguardam conexão: '+error.message); }
-    legacy=fresh; state=extra; invalid=false; writable=modulesReady; stored++;
+    legacy=fresh; state=extra; legacy.currencyReference=state.settings||{}; invalid=false; writable=modulesReady; stored++;
     const syncedAt=new Date().toISOString();
     if(modulesReady)try { localStorage.setItem(KEY,JSON.stringify({legacy,state,syncedAt})); } catch { toast('Dados carregados. O navegador está sem espaço para uma cópia offline.'); }
     status(modulesReady?'✓ Dados atualizados na planilha':'Estoque conectado · módulos novos indisponíveis');
     $('#last-sync').textContent='Atualizado em '+new Date(syncedAt).toLocaleString('pt-BR');
     if(JSON.parse(localStorage.getItem('fila') || '[]').length){writable=false;status('Há alterações pendentes na versão anterior. Abra “Versão anterior” para sincronizá-las antes de continuar.');}
     if(pendingOperation){writable=false;status('Há uma operação sem confirmação. Use “Conferir operação” antes de novos lançamentos.');}
+    if(state.pendingLegacy){writable=false;status(pendingOperation?'Há uma operação pendente. Use “Conferir operação” antes de novos lançamentos.':'Há uma operação pendente em outro acesso. Confira o lançamento original antes de continuar.');}
     render();
   } catch(error) {
     writable=false;
@@ -132,7 +138,9 @@ const headings = {
   gastos:['Gastos','Custos registrados, sem perder os detalhes.','+ Novo gasto'],
   clientes:['Clientes','Quem compra com você, em um só lugar.',''],
   locais:['Locais','Confira onde estão os seus produtos.','+ Novo local'],
-  decisao:['Tomada de decisão','Números que ajudam a escolher o próximo passo.','']
+  decisao:['Tomada de decisão','Números que ajudam a escolher o próximo passo.',''],
+  envios:['Envios','O que saiu, com quem foi e para quem. Cada mês fica guardado.',''],
+  arquivados:['Arquivados','Itens guardados para consulta ou restauração.','']
 };
 
 function render() {
@@ -141,16 +149,33 @@ function render() {
   $('#page-title').textContent = title; $('#page-description').textContent = description;
   $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable;
   $('#reconcile').hidden=!pendingOperation;
+  const reference=state.settings||{};
+  $('#exchange-rate').textContent=reference.fxRate?`R$ ⇄ US$ · ${String(reference.fxRate).replace('.',',')}`:'R$ ⇄ US$ · Câmbio';
+  $('#exchange-rate').disabled=!writable;
+  $('#exchange-note').textContent=reference.fxRate?`Câmbio informado: US$ 1 = R$ ${String(reference.fxRate).replace('.',',')} · ${dateBR(reference.fxDate)}`:'Valores em R$ e US$. Equivalências aparecem ao informar um câmbio.';
+  $('#exchange-note').hidden=view==='envios';
+  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':view==='envios'?'envios':'';
+  document.querySelectorAll('[data-section]').forEach(b=>{b.classList.toggle('active',b.dataset.section===section);b.setAttribute('aria-current',b.dataset.section===section?'page':'false');});
+  const sectionViews=section==='estoque'?[['estoque','Todos os produtos'],['mercadorias','Mercadorias']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
+  $('#section-tabs').innerHTML=sectionViews.map(([name,label])=>`<button type="button" data-view="${name}">${label}</button>`).join('');
+  $('#section-tabs').hidden=!sectionViews.length;
+  $('#shipment-month').closest('label').hidden=view!=='envios';$('#shipment-month').value=shipmentMonth;
+  $('#search').placeholder=view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').closest('label').hidden = view === 'decisao';
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
   $('#stock-filter').closest('label').hidden = view !== 'estoque';
   $('#category-filter').closest('label').hidden = !['estoque','mercadorias','vendas','receber','decisao'].includes(view);
+  $('#filter-options').hidden=!['estoque','mercadorias','vendas','receber','decisao'].includes(view);
+  const selectedFilters=[view==='estoque'&&stockFilter,['estoque','mercadorias'].includes(view)&&locationFilter,categoryFilter].filter(Boolean).length;
+  $('#filter-options-title').textContent=selectedFilters?`Filtros (${selectedFilters})`:'Filtros';
   $('#location-filter').innerHTML='<option value="">Todos os locais</option>'+locationOptions(locationFilter);$('#location-filter').value=locationFilter;
   document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active',b.dataset.view === view); b.setAttribute('aria-current',b.dataset.view === view ? 'page' : 'false'); });
   if (view === 'mercadorias' || view === 'estoque') renderProducts();
+  else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search}):empty('Atualize a conexão para consultar os envios.');}
   else if (view === 'devedores') {if(modulesLoaded)renderDebts();else{$('#summary').innerHTML='';$('#content').innerHTML=empty('A caderneta ainda não foi carregada. Atualize a conexão para consultar o saldo.');}}
   else if (view === 'decisao') {
-    $('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?decisionView(legacy,state,{today:today(),category:categoryFilter}):empty('Atualize a conexão para carregar todos os módulos antes de analisar o painel.');
+    $('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?decisionView(legacy,state,{today:today(),category:categoryFilter,currency:decisionCurrency,reference}):empty('Atualize a conexão para carregar todos os módulos antes de analisar o painel.');
+    const currencySelect=$('#decision-currency');if(currencySelect)currencySelect.addEventListener('change',()=>{decisionCurrency=currencySelect.value;localStorage.setItem('puff:decision-currency',decisionCurrency);render();});
     const disclosure=$('#decision-details');if(disclosure){disclosure.open=localStorage.getItem('puff:decision-collapsed')!=='true';disclosure.addEventListener('toggle',()=>localStorage.setItem('puff:decision-collapsed',String(!disclosure.open)));}
   }
   else {
@@ -166,12 +191,12 @@ function extraView(){
   const products=state.products.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter), ids=new Set(products.map(p=>p.id));
   if(view==='vendas'){
     const sales=state.movements.filter(m=>m.type==='saida'&&ids.has(m.productId)&&matches(m.client,m.notes,state.products.find(p=>p.id===m.productId)?.name)).slice().reverse();
-    return sales.length?`<h2 class="section-title">Saídas de mercadorias</h2><div class="debt-list">${sales.map(m=>`<article class="debt-card"><h3>${esc(state.products.find(p=>p.id===m.productId)?.name)}</h3><div class="client-location"><span class="context-chip">Cliente <strong>${esc(m.client)}</strong></span><span class="context-chip">Local <strong>${esc(m.location)}</strong></span></div><p>${m.quantity} un. · ${money(m.quantity*m.unitPriceCents)} · ${dateBR(m.date)}</p></article>`).join('')}</div>`:'';
+    return sales.length?`<h2 class="section-title">Saídas de mercadorias</h2><div class="debt-list">${sales.map(m=>`<article class="debt-card"><h3>${esc(state.products.find(p=>p.id===m.productId)?.name)}</h3><div class="client-location"><span class="context-chip">Cliente <strong>${esc(m.client)}</strong></span><span class="context-chip">Local <strong>${esc(m.location)}</strong></span></div><p>${m.quantity} un. · ${moneyHTML(m.quantity*m.unitPriceCents,m,state.settings)} · ${dateBR(m.date)}</p>${!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda','secondary'):''}</article>`).join('')}</div>`:'';
   }
-  if(view==='receber')return `<div class="module-note"><strong>Caderneta de devedores: ${money(state.debts.reduce((sum,d)=>sum+debtBalance(d),0))}</strong><p>Pagamentos parciais e dívidas avulsas ficam na aba Devedores.</p><button type="button" data-action="open-debts" class="secondary">Ver devedores</button></div>`;
+  if(view==='receber')return `<div class="module-note"><strong>Caderneta de devedores</strong>${moneyTotals(state.debts,debtBalance)}<p>Pagamentos parciais e dívidas avulsas ficam na aba Devedores. Os totais de reais e dólares são separados.</p><button type="button" data-action="open-debts" class="secondary">Ver devedores</button></div>`;
   if(view==='clientes'){
     const clients=[...new Set(state.movements.filter(m=>m.type==='saida').map(m=>m.client))].filter(name=>matches(name));
-    return clients.length?`<h2 class="section-title">Clientes das mercadorias</h2><div class="product-grid">${clients.map(name=>{const movements=state.movements.filter(m=>m.type==='saida'&&m.client===name);return `<article class="product-card stock-mercadorias"><h3>${esc(name)}</h3><strong>${money(movements.reduce((n,m)=>n+m.quantity*m.unitPriceCents,0))}</strong><p>${movements.reduce((n,m)=>n+m.quantity,0)} unidades · ${esc([...new Set(movements.map(m=>m.location))].join(', '))}</p></article>`;}).join('')}</div>`:'';
+    return clients.length?`<h2 class="section-title">Clientes das mercadorias</h2><div class="product-grid">${clients.map(name=>{const movements=state.movements.filter(m=>m.type==='saida'&&m.client===name);return `<article class="product-card stock-mercadorias"><h3>${esc(name)}</h3><strong>${moneyTotals(movements,m=>m.quantity*m.unitPriceCents)}</strong><p>${movements.reduce((n,m)=>n+m.quantity,0)} unidades · ${esc([...new Set(movements.map(m=>m.location))].join(', '))}</p></article>`;}).join('')}</div>`:'';
   }
   if(view==='locais')return `<h2 class="section-title">Mercadorias por local</h2><div class="product-grid">${locations().map(loc=>`<article class="product-card stock-mercadorias"><h3>${esc(loc)}</h3><strong>${state.products.reduce((n,p)=>n+balance(state,p.id,loc),0)} unidades</strong></article>`).join('')}</div>`;
   return '';
@@ -193,28 +218,26 @@ function renderProducts() {
     const lastSale = state.movements.filter(m=>m.productId===p.id&&m.type==='saida').at(-1);
     const places = locations().filter(l=>balance(state,p.id,l)>0).map(l=>`${l}: ${balance(state,p.id,l)}`).join(' · ');
     return `<article class="product-card stock-${esc(p.stock || 'mercadorias')}"><div class="product-top">${image(p)}<div><div class="meta stock-badge">${stockName(p)}</div><h2 class="product-title">${esc(p.name)}</h2><span class="badge ${isLow?'low':'good'}">${qty === 0 ? 'Sem estoque' : isLow ? 'Estoque baixo' : 'Disponível'}</span></div><button type="button" class="ghost edit-product" data-action="edit-product" data-id="${esc(p.id)}" aria-label="Editar ${esc(p.name)}" title="Editar produto"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/></svg></button></div>
-      <div class="card-values"><div><span class="meta">${locationFilter ? 'Neste local' : 'Disponível'}</span><strong class="stock-number">${qty}<small> un.</small></strong></div><div><span class="meta">Preço por unidade</span><strong>${money(p.priceCents)}</strong></div></div>
+      <div class="card-values"><div><span class="meta">${locationFilter ? 'Neste local' : 'Disponível'}</span><strong class="stock-number">${qty}<small> un.</small></strong></div><div><span class="meta">Preço por unidade</span><strong>${moneyHTML(p.priceCents,p,state.settings)}</strong></div></div>
       <div class="client-location"><div class="context-chip"><span class="context-label">Local · unidades</span><strong>${esc(places || 'Sem saldo nos locais')}</strong></div><div class="context-chip"><span class="context-label">Último cliente</span><strong>${esc(lastSale?.client || 'Ainda sem saída')}</strong></div></div>
-      <p class="notes">${esc(p.notes || 'Adicione uma observação para encontrar os detalhes depois.')}</p>
-      <div class="card-actions">${action('entrada',p.id,'↓ Entrada')}${action('saida',p.id,'↑ Saída','primary')}${action('details-product',p.id,'Histórico','ghost')}</div></article>`;
+      <details class="card-details"><summary>Detalhes e custos</summary>${p.costCents!=null?`<div class="card-values"><div><span class="meta">Custo por unidade</span><strong>${moneyHTML(p.costCents,p,state.settings,'costCurrency')}</strong></div></div>`:''}<p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('details-product',p.id,'Histórico','ghost')}</div></details>
+      <div class="card-actions">${action('entrada',p.id,'↓ Entrada')}${action('saida',p.id,'↑ Saída','primary')}</div></article>`;
   }).join('')}</div>` : empty('Nenhum produto encontrado. Tente outro termo ou cadastre uma mercadoria.');
   if(mainItems.length)$('#content').innerHTML=legacyCards({...legacy,itens:mainItems})+(products.length?`<h2 class="section-title">Catálogo de mercadorias</h2>`+$('#content').innerHTML:'');
 }
 
 function renderDebts() {
   const debts = state.debts.filter(d => matches(d.name,d.description,d.notes));
-  const received = debts.reduce((n,d)=>n+d.totalCents-debtBalance(d),0);
-  const outstanding = debts.reduce((n,d)=>n+debtBalance(d),0);
-  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',money(outstanding))}${stat('Já recebido',money(received),'success')}${stat('Anotações em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
+  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Anotações em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining;
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
     return `<article class="debt-card ${remaining?'debt-open':'debt-settled'}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
-      <div class="debt-amount"><span class="meta">Falta receber</span><strong>${money(remaining)}</strong></div>
-      <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid))} de ${esc(money(d.totalCents))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
-      <div class="payment-row"><span class="meta">Recebido <b>${money(paid)}</b></span><span class="meta">Total ${money(d.totalCents)}</span></div>
-      <p class="notes">${d.payments.length ? `Último pagamento: ${money(d.payments[d.payments.length-1].amountCents)} em ${dateBR(d.payments[d.payments.length-1].date)}` : `Anotado em ${dateBR(d.date)}`}${d.dueDate ? ` · Vence ${dateBR(d.dueDate)}` : ''}</p>
-      <div class="card-actions">${remaining ? action('payment',d.id,'+ Registrar pagamento parcial','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Ver histórico','secondary')}</div></article>`;
+      <div class="debt-amount"><span class="meta">Falta receber</span><strong>${moneyHTML(remaining,d,state.settings)}</strong></div>
+      <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid,d.currency))} de ${esc(money(d.totalCents,d.currency))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
+      <div class="payment-row"><span class="meta">Abatido <b>${money(paid,d.currency)}</b></span><span class="meta">Total ${money(d.totalCents,d.currency)}</span></div>
+      <p class="notes">${d.payments.length ? `Último abatimento: ${money(d.payments[d.payments.length-1].amountCents,d.currency)} em ${dateBR(d.payments[d.payments.length-1].date)}` : `Anotado em ${dateBR(d.date)}`}${d.dueDate ? ` · Vence ${dateBR(d.dueDate)}` : ''}</p>
+      <div class="card-actions">${action('debt-currency',d.id,currencyOf(d)?'✎ Moeda / câmbio':'✎ Confirmar moeda','secondary')}${remaining ? action('payment',d.id,'+ Registrar pagamento parcial','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Ver histórico','secondary')}</div></article>`;
   }).join('')}</div>` : empty('Nenhuma dívida encontrada. Anote o nome, o motivo e o valor para começar.');
 }
 
@@ -235,15 +258,16 @@ function productForm(id) {
   openDialog(product ? 'Editar produto' : 'Nova mercadoria',
     field('Nome do produto','name','text',product?.name || '','required maxlength="120" placeholder="Ex.: Kit de acessórios"')+
     '<p class="help">Mercadorias · controle por quantidade. Também aparece na aba Estoque.</p>'+
-    `<div class="form-grid"><label class="field" for="f-category"><span>Categoria</span><select id="f-category" name="category">${['Mercadorias','Peptídeos','Ar-condicionados'].map(c=>`<option ${classifyCategory({category:c})===classifyCategory(product||{})?'selected':''}>${c}</option>`).join('')}</select></label>${field('Preço por unidade (R$)','price','text',((product?.priceCents || 0)/100).toFixed(2),'required inputmode="decimal"')}</div>`+
-    field('Custo atual por unidade (R$) · opcional','cost','text',product?.costCents==null?'':(product.costCents/100).toFixed(2),'inputmode="decimal" placeholder="Preencha para estimar a reposição"')+
+    `<label class="field" for="f-category"><span>Categoria</span><select id="f-category" name="category">${['Mercadorias','Peptídeos','Ar-condicionados'].map(c=>`<option ${classifyCategory({category:c})===classifyCategory(product||{})?'selected':''}>${c}</option>`).join('')}</select></label>`+
+    currencyForm(product||{currency:'BRL',costCurrency:'BRL',...state.settings,costFxRate:state.settings?.fxRate,costFxDate:state.settings?.fxDate},{cost:true,reference:state.settings})+
+    `<div class="form-grid">${field('Preço de venda por unidade','price','text',((product?.priceCents || 0)/100).toFixed(2),'required inputmode="decimal"')}${field('Custo por unidade · opcional','cost','text',product?.costCents==null?'':(product.costCents/100).toFixed(2),'inputmode="decimal" placeholder="Na moeda da compra"')}</div>`+
     field('Avisar quando chegar a (unidades)','minStock','number',product?.minStock ?? 5,'required min="0" max="1000000" step="1"')+
     `<label class="field" for="f-photo"><span>Foto do produto <small>opcional</small></span><input id="f-photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp"><small class="help">JPG, PNG ou WebP até 5 MB. Redimensionamos automaticamente.</small></label>${product?.photo?'<label class="check-field"><input name="removePhoto" type="checkbox"> Remover foto atual</label>':''}`+
     notes(product?.notes), 'Salvar produto', async data => {
       let photo = product?.photo || '';
       if (data.get('removePhoto')) photo = '';
       photo=await readPhoto(data.get('photo'),photo);
-      const input={name:data.get('name'),stock:'mercadorias',category:data.get('category'),priceCents:cents(data.get('price')),costCents:String(data.get('cost')).trim()?cents(data.get('cost')):null,minStock:Number(data.get('minStock')),notes:data.get('notes'),photo};
+      const input={name:data.get('name'),stock:'mercadorias',category:data.get('category'),priceCents:cents(data.get('price')),costCents:String(data.get('cost')).trim()?cents(data.get('cost')):null,...readCurrencyForm(data,{cost:true}),minStock:Number(data.get('minStock')),notes:data.get('notes'),photo};
       await save('puffProduto',{input,...(product?{productId:product.id,expected:product}:{})});
       toast(product?'Produto atualizado.':'Produto cadastrado. Registre a primeira entrada.');
     });
@@ -253,30 +277,41 @@ function debtForm() {
   openDialog('Nova anotação de dívida',field('Quem deve?','name','text','','required maxlength="120" placeholder="Nome da pessoa"')+
     field('Sobre o que deve?','description','text','','required maxlength="200" placeholder="Ex.: iPhone, serviço, empréstimo…"')+
     field('Quantidade de itens neste combinado','units','number',1,'required min="1" max="1000000" step="1"')+
-    `<div class="form-grid">${field('Valor total (R$)','total','text','','required inputmode="decimal" placeholder="2.000,00 → digite 2000,00"')}${field('Data da anotação','date','date',today(),'required')}</div>`+
+    currencyForm({currency:'BRL',...state.settings},{reference:state.settings})+
+    `<div class="form-grid">${field('Valor total na moeda escolhida','total','text','','required inputmode="decimal" placeholder="2.000,00 → digite 2000,00"')}${field('Data da anotação','date','date',today(),'required')}</div>`+
     field('Vencimento (opcional)','dueDate','date')+notes(), 'Salvar dívida', async data=>{
-      await save('puffDivida',{input:{name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')}});toast('Dívida anotada.');
+      await save('puffDivida',{input:{name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')}});toast('Dívida anotada.');
     });
 }
 function paymentForm(id) {
   const debt = state.debts.find(d=>d.id===id); if (!debt) return;
+  if(!currencyOf(debt)){debtCurrencyForm(id);return;}
   const remaining = debtBalance(debt);
-  openDialog(`Pagamento de ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>Saldo atual <strong>${money(remaining)}</strong></p><p class="help">Receba uma parte ou o valor total. O restante continua em aberto, com cada pagamento salvo no histórico.</p>`+
-    `<div class="form-grid">${field('Valor recebido agora (R$)','amount','text','','required inputmode="decimal" placeholder="Ex.: 500,00" aria-describedby="payment-remaining"')}${field('Data do pagamento','date','date',today(),`required min="${esc(debt.date)}"`)}</div><p id="payment-remaining" class="payment-preview" role="status"></p>`+notes(), 'Registrar pagamento',async data=>{
-      await save('puffPagamento',{debtId:id,input:{amountCents:cents(data.get('amount')),date:data.get('date'),note:data.get('notes')}},'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
+  openDialog(`Pagamento de ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>Saldo atual <strong>${money(remaining,debt.currency)}</strong></p><p class="help">Receba uma parte ou o total. Para receber em outra moeda, informe o câmbio deste pagamento.</p>`+
+    currencyForm({currency:debt.currency,...state.settings},{reference:state.settings})+
+    `<div class="form-grid">${field('Valor recebido agora','amount','text','','required inputmode="decimal" placeholder="Ex.: 500,00" aria-describedby="payment-remaining"')}${field('Data do pagamento','date','date',today(),`required min="${esc(debt.date)}"`)}</div><p id="payment-remaining" class="payment-preview" role="status"></p>`+notes(), 'Registrar pagamento',async data=>{
+      const currency=readCurrencyForm(data),receivedCents=cents(data.get('amount'));
+      const applied=convertCents(receivedCents,currency.currency,debt.currency,currency.fxRate);
+      if(applied==null)throw new Error('Informe o câmbio para receber em outra moeda.');
+      if(applied<=0||applied>remaining)throw new Error(`O abatimento precisa ser maior que zero e até ${money(remaining,debt.currency)}.`);
+      await save('puffPagamento',{debtId:id,input:{receivedCents,...currency,date:data.get('date'),note:data.get('notes')}},'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
     });
   const preview = $('#payment-remaining');
   const updateRemaining = () => {
     preview.classList.remove('success');
     try {
-      const amount = cents($('#f-amount').value);
+      const input=readCurrencyForm({get:name=>$('#mf-'+name).value});
+      const amount = convertCents(cents($('#f-amount').value),input.currency,debt.currency,input.fxRate);
+      if(amount==null){preview.textContent='Informe o câmbio para receber em outra moeda.';return;}
       if(!amount)throw new Error();
-      if(amount>remaining){preview.textContent=`O pagamento não pode ultrapassar o saldo de ${money(remaining)}.`;return;}
-      preview.textContent=amount===remaining?'✓ Este pagamento quita a dívida.':`Após este pagamento, falta receber ${money(remaining-amount)}.`;
+      if(amount>remaining){preview.textContent=`O pagamento não pode ultrapassar o saldo de ${money(remaining,debt.currency)}.`;return;}
+      const conversion=input.currency!==debt.currency?`Abatimento: ${money(amount,debt.currency)} (US$ 1 = R$ ${String(input.fxRate).replace('.',',')}). `:'';
+      preview.textContent=conversion+(amount===remaining?'✓ Este pagamento quita a dívida.':`Após este pagamento, falta receber ${money(remaining-amount,debt.currency)}.`);
       preview.classList.toggle('success',amount===remaining);
     } catch { preview.textContent='Digite o valor recebido para conferir quanto ainda falta.'; }
   };
-  $('#f-amount').addEventListener('input',updateRemaining);updateRemaining();
+  $('#f-amount').addEventListener('input',updateRemaining);
+  ['currency','fxRate','fxDate'].forEach(name=>$('#mf-'+name).addEventListener('input',updateRemaining));updateRemaining();
 }
 
 function movementForm(id,type) {
@@ -286,30 +321,58 @@ function movementForm(id,type) {
   openDialog(titles[type],`<p class="dialog-summary"><strong>${esc(p.name)}</strong><br><span id="stock-at-location">${balance(state,id,source)} un. em ${esc(source)}</span></p>`+
     `<div class="form-grid">${field('Quantidade','quantity','number',1,'required min="1" max="1000000" step="1"')}<label class="field" for="f-location"><span>${type==='transferencia'?'Local de origem':'Local'}</span><select name="location" id="f-location">${locationOptions(source)}</select></label></div>`+
     (type==='transferencia'?`<label class="field" for="f-toLocation"><span>Local de destino</span><select id="f-toLocation" name="toLocation">${locationOptions(source==='Loja'?'Depósito SP':'Loja')}</select></label>`:'')+
-    (type==='saida'?`<div class="form-grid">${field('Cliente','client','text','','required maxlength="120" placeholder="Nome de quem recebeu"')}${field('Valor por unidade (R$)','unitPrice','text',(p.priceCents/100).toFixed(2),'required inputmode="decimal"')}</div><p class="movement-total" id="movement-total"></p><label class="check-field"><input type="checkbox" name="createDebt"> Anotar esta venda em Devedores</label><p class="help">Marque quando o pagamento ficar para depois. O valor total entra na caderneta.</p>`:'')+
+    (type==='saida'?currencyForm({currency:p.currency,...state.settings},{reference:state.settings})+`<div class="form-grid">${field('Cliente','client','text','','required maxlength="120" placeholder="Nome de quem recebeu"')}${field('Valor por unidade','unitPrice','text',(p.priceCents/100).toFixed(2),'required inputmode="decimal"')}</div><p class="movement-total" id="movement-total"></p><label class="check-field"><input type="checkbox" name="createDebt"> Anotar esta venda em Devedores</label><p class="help">Marque quando o pagamento ficar para depois. A moeda e o valor desta saída entram na caderneta.</p>`:'')+
     field('Data','date','date',today(),'required')+notes(),'Salvar movimentação',async data=>{
       const quantity=Number(data.get('quantity')),unitPriceCents=type==='saida'?cents(data.get('unitPrice')):p.priceCents;
-      await save('puffMovimento',{productId:id,input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
+      const currency=type==='saida'?readCurrencyForm(data):{currency:p.currency,fxRate:p.fxRate,fxDate:p.fxDate};
+      await save('puffMovimento',{productId:id,input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
     });
   $('#f-location').addEventListener('change',()=>{$('#stock-at-location').textContent=`${balance(state,id,$('#f-location').value)} un. em ${$('#f-location').value}`;});
   if(type==='saida'){
-    const updateTotal=()=>{try{$('#movement-total').textContent='Total da saída: '+money(Number($('#f-quantity').value)*cents($('#f-unitPrice').value));}catch{$('#movement-total').textContent='Informe quantidade e valor por unidade.';}};
-    $('#f-quantity').addEventListener('input',updateTotal);$('#f-unitPrice').addEventListener('input',updateTotal);updateTotal();
+    const updateTotal=()=>{try{$('#movement-total').textContent='Total da saída: '+money(Number($('#f-quantity').value)*cents($('#f-unitPrice').value),$('#mf-currency').value);}catch{$('#movement-total').textContent='Informe quantidade e valor por unidade.';}};
+    $('#f-quantity').addEventListener('input',updateTotal);$('#f-unitPrice').addEventListener('input',updateTotal);$('#mf-currency').addEventListener('change',updateTotal);updateTotal();
   }
 }
 
+function exchangeForm() {
+  const reference=state.settings||{};
+  openDialog('Câmbio de referência',`<p class="help">Informe a cotação que você usa hoje. Ela mostra equivalências nos cards e pode ser copiada para um novo lançamento. Pagamentos antigos conservam suas taxas.</p><div class="form-grid">${field('US$ 1 vale quantos reais?','rate','text',reference.fxRate??'','inputmode="decimal" placeholder="Ex.: 5,25"')}${field('Data da cotação','rateDate','date',reference.fxDate||today())}</div><p class="help">Cotação informada manualmente. Deixe o valor vazio para retirar a referência.</p>`,'Salvar câmbio',async data=>{
+    const input=readCurrencyForm({get:name=>name==='currency'?'BRL':name==='fxRate'?data.get('rate'):data.get('rateDate')});
+    await save('puffCambio',{input:{fxRate:input.fxRate,fxDate:input.fxDate}});toast('Câmbio de referência atualizado.');
+  });
+}
+function debtCurrencyForm(id) {
+  const debt=state.debts.find(d=>d.id===id);if(!debt)return;
+  openDialog(`Moeda · ${debt.name}`,`<p class="dialog-summary">Valor original: <strong>${money(debt.totalCents,debt.currency)}</strong><br>Falta receber: <strong>${money(debtBalance(debt),debt.currency)}</strong></p>`+currencyForm(debt,{reference:state.settings})+'<p class="help">Confirma a moeda dos números existentes, sem converter os valores. Depois de receber pagamentos, uma moeda já confirmada fica preservada.</p>','Salvar moeda e câmbio',async data=>{
+    await save('puffDividaEdit',{debtId:id,expected:debt,input:readCurrencyForm(data)});toast('Moeda da dívida atualizada.');
+  });
+}
+function movementCurrencyForm(id) {
+  const movement=state.movements.find(m=>m.id===id);if(!movement)return;
+  openDialog('Confirmar moeda da saída',`<p class="dialog-summary">${esc(movement.client)} · ${dateBR(movement.date)}<br>${movement.quantity} unidades · ${money(movement.quantity*movement.unitPriceCents,movement.currency)}</p>`+currencyForm(movement,{reference:state.settings})+'<p class="help">O número registrado permanece igual; esta ação identifica a moeda do lançamento antigo.</p>','Confirmar moeda',async data=>save('puffMovimentoEdit',{movementId:id,expected:movement,input:readCurrencyForm(data)}));
+}
 function productDetails(id) {
   const p=state.products.find(p=>p.id===id);if(!p)return;
   const movements=state.movements.filter(m=>m.productId===id).slice().reverse();
-  openDialog(p.name,`<div class="chips">${locations().map(l=>`<span class="chip">${esc(l)} <b>${balance(state,id,l)} un.</b></span>`).join('')}</div><p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('transferencia',id,'⇄ Transferir entre locais')}</div><h3>Histórico de movimentações</h3><div class="timeline">${movements.map(m=>`<div class="movement"><span class="movement-icon">${m.type==='entrada'?'↓':m.type==='saida'?'↑':'⇄'}</span><div class="movement-main"><strong>${m.type==='entrada'?'Entrada':m.type==='saida'?'Saída':'Transferência'} · ${m.quantity} un.</strong><div class="meta">${esc(m.location)}${m.toLocation?' → '+esc(m.toLocation):''}${m.client?' · '+esc(m.client):''}</div><div class="meta">${dateBR(m.date)}${m.type==='saida'?' · '+money(m.quantity*m.unitPriceCents):''}</div>${m.notes?`<p class="notes">${esc(m.notes)}</p>`:''}</div></div>`).join('') || empty('Nenhuma movimentação. Registre a primeira entrada.')}</div>`,null,null);
+  openDialog(p.name,`<div class="chips">${locations().map(l=>`<span class="chip">${esc(l)} <b>${balance(state,id,l)} un.</b></span>`).join('')}</div><p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('transferencia',id,'⇄ Transferir entre locais')}</div><h3>Histórico de movimentações</h3><div class="timeline">${movements.map(m=>`<div class="movement"><span class="movement-icon">${m.type==='entrada'?'↓':m.type==='saida'?'↑':'⇄'}</span><div class="movement-main"><strong>${m.type==='entrada'?'Entrada':m.type==='saida'?'Saída':'Transferência'} · ${m.quantity} un.</strong><div class="meta">${esc(m.location)}${m.toLocation?' → '+esc(m.toLocation):''}${m.client?' · '+esc(m.client):''}</div><div class="meta">${dateBR(m.date)}${m.type==='saida'?' · '+moneyHTML(m.quantity*m.unitPriceCents,m,state.settings):''}</div>${m.type==='saida'&&!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda'):''}${m.notes?`<p class="notes">${esc(m.notes)}</p>`:''}</div></div>`).join('') || empty('Nenhuma movimentação. Registre a primeira entrada.')}</div>`,null,null);
 }
 function debtDetails(id) {
   const d=state.debts.find(d=>d.id===id);if(!d)return;
-  openDialog(`Histórico · ${d.name}`,`<p class="dialog-summary">${esc(d.description)}<br>Valor original <strong>${money(d.totalCents)}</strong><br>Falta receber <strong>${money(debtBalance(d))}</strong></p>${d.notes?`<p class="notes">${esc(d.notes)}</p>`:''}<h3>Pagamentos registrados</h3><div class="payments">${d.payments.slice().reverse().map(p=>`<div class="payment-row"><div><strong>${dateBR(p.date)}</strong>${p.note?`<p class="meta">${esc(p.note)}</p>`:''}</div><strong class="success">${money(p.amountCents)}</strong></div>`).join('') || empty('Ainda não houve pagamento. Cada recebimento ficará registrado aqui com a data.')}</div><p class="help">Dívida anotada em ${dateBR(d.date)}${d.dueDate?` · vencimento ${dateBR(d.dueDate)}`:''}.</p>`,null,null);
+  openDialog(`Histórico · ${d.name}`,`<p class="dialog-summary">${esc(d.description)}<br>Valor original <strong>${money(d.totalCents,d.currency)}</strong><br>Falta receber <strong>${money(debtBalance(d),d.currency)}</strong></p>${d.notes?`<p class="notes">${esc(d.notes)}</p>`:''}<h3>Pagamentos registrados</h3><div class="payments">${d.payments.slice().reverse().map(p=>`<div class="payment-row"><div><strong>${dateBR(p.date)}</strong>${p.note?`<p class="meta">${esc(p.note)}</p>`:''}<p class="meta">${p.receivedCents!=null?`Recebido: ${money(p.receivedCents,p.currency)}${p.fxRate?` · US$ 1 = R$ ${esc(p.fxRate)} · ${dateBR(p.fxDate)}`:''}`:'Registro anterior à identificação de moedas.'}</p></div><strong class="success">Abatido ${money(p.amountCents,d.currency)}</strong></div>`).join('') || empty('Ainda não houve pagamento. Cada recebimento ficará registrado aqui com a data.')}</div><p class="help">Dívida anotada em ${dateBR(d.date)}${d.dueDate?` · vencimento ${dateBR(d.dueDate)}`:''}.</p>`,null,null);
 }
 
-document.querySelectorAll('[data-view]').forEach(button=>button.addEventListener('click',()=>{view=button.dataset.view;search='';$('#search').value='';render();}));
+function shipmentEditor(id) {
+  const shipment=(state.shipments||[]).find(s=>s.id===id);
+  const form=shipmentForm(shipment,today());
+  openDialog(form.title,form.html,'Salvar envio',async data=>{
+    const input=form.build(data);
+    await save('puffEnvio',{input,...(shipment?{shipmentId:shipment.id,expected:shipment}:{})});
+    shipmentMonth=input.date.slice(0,7);render();toast('Envio registrado no mês correspondente.');
+  });
+}
 $('#search').addEventListener('input',e=>{search=e.target.value;render();});
+$('#shipment-month').addEventListener('change',e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)){shipmentMonth=e.target.value;render();}});
+$('#exchange-rate').addEventListener('click',exchangeForm);
 $('#location-filter').addEventListener('change',e=>{locationFilter=e.target.value;render();});
 $('#stock-filter').addEventListener('change',e=>{stockFilter=e.target.value;render();});
 $('#category-filter').addEventListener('change',e=>{categoryFilter=e.target.value;render();});
@@ -329,18 +392,27 @@ $('#new-entry').addEventListener('click',()=>{
   else productForm();
 });
 document.addEventListener('click',e=>{
+  const nav=e.target.closest('[data-view],[data-section]');
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios'}[nav.dataset.section]);if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
+  if(a==='clear-filters'){stockFilter='';locationFilter='';categoryFilter='';$('#stock-filter').value='';$('#category-filter').value='';render();return;}
+  if(a==='use-fx'){
+    for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
+  }
+  if(a==='shipment-new'||a==='shipment-edit'){shipmentEditor(id);return;}
+  if(a==='shipment-add-item'){const count=$('#shipment-items').querySelectorAll('.shipment-line').length;if(count>=50)throw new Error('Um envio aceita até 50 mercadorias.');$('#shipment-items').insertAdjacentHTML('beforeend',shipmentItemFields({},count));return;}
+  if(a==='shipment-remove-item'){if($('#shipment-items').querySelectorAll('.shipment-line').length<=1)throw new Error('Mantenha pelo menos uma mercadoria no envio.');b.closest('.shipment-line').remove();return;}
   if(a==='open-debts'){view='devedores';render();return;}
   if(a==='new-legacy'){$('#editor').close();originalForm('new');return;}
   if(a==='new-catalog'){$('#editor').close();productForm();return;}
   if(a.startsWith('legacy-')){
     const kind=a.slice(7);
-    if(['edit','sell','local'].includes(kind)){originalForm(kind,Number(id));return;}
-    const request=kind==='paid'?legacyPaymentAction(legacy,id):kind==='delete'?legacyDeleteAction(legacy,id):legacyExpenseDeleteAction(legacy,id);
-    const title=kind==='paid'?(request.payload.valor?'Registrar recebimento':'Voltar para a receber'):kind==='delete'?'Arquivar aparelho':'Excluir gasto';
-    openDialog(title,kind==='delete'?'<p>O aparelho ficará nos arquivados da versão anterior e poderá ser restaurado.</p>':kind==='expense-delete'?'<p>Este gasto será excluído da planilha. Exporte um backup se quiser guardar uma cópia.</p>':'<p>Confirme a atualização do pagamento deste aparelho.</p>','Confirmar',async()=>save(request.action,request.payload,kind==='paid'&&request.payload.valor?'Pagamento recebido':''));return;
+    if(['edit','sell','local','expense-edit'].includes(kind)){originalForm(kind,Number(id));return;}
+    const request=kind==='paid'?legacyPaymentAction(legacy,id):kind==='delete'?legacyDeleteAction(legacy,id):kind==='restore'?legacyRestoreAction(legacy,id):legacyExpenseDeleteAction(legacy,id);
+    const title=kind==='paid'?(request.payload.valor?'Registrar recebimento':'Voltar para a receber'):kind==='delete'?'Arquivar aparelho':kind==='restore'?'Restaurar aparelho':'Excluir gasto';
+    openDialog(title,kind==='delete'?'<p>O aparelho ficará em Arquivados e poderá ser restaurado.</p>':kind==='restore'?'<p>O aparelho voltará ao estoque, com os dados que tinha ao ser arquivado.</p>':kind==='expense-delete'?'<p>Este gasto será excluído da planilha. Exporte um backup se quiser guardar uma cópia.</p>':'<p>Confirme a atualização do pagamento deste aparelho.</p>','Confirmar',async()=>save(request.action,request.payload,kind==='paid'&&request.payload.valor?'Pagamento recebido':''));return;
   }
   if(a==='filter-location'){locationFilter=location;$('#location-filter').value=location;render();return;}
   if(['entrada','saida','transferencia'].includes(a)){$('#editor').close();movementForm(id,a);}
@@ -348,6 +420,8 @@ document.addEventListener('click',e=>{
   else if(a==='details-product')productDetails(id);
   else if(a==='payment')paymentForm(id);
   else if(a==='details-debt')debtDetails(id);
+  else if(a==='debt-currency')debtCurrencyForm(id);
+  else if(a==='movement-currency')movementCurrencyForm(id);
   } catch(error){toast(error.message);}
 });
 $('#close-dialog').addEventListener('click',closeDialog);$('#cancel-dialog').addEventListener('click',closeDialog);
@@ -370,7 +444,7 @@ $('#reconcile').addEventListener('click',reconcile);
 $('#change-key').addEventListener('click',auth);
 $('#alisson-balance').addEventListener('click',()=>{
   const commission=state.commission || {balanceCents:0,entries:[]};
-  const usd=value=>(value/100).toLocaleString('pt-BR',{style:'currency',currency:'USD'});
+  const usd=value=>money(value,'USD');
   openDialog('Uma nobre causa: o café do Alisson ☕',`<p>📦 Você cuida do estoque. ☕ O Alisson cuida do café que mantém as ideias funcionando.</p><p class="dialog-summary">💰 Fundo do cafezinho <strong>${usd(commission.balanceCents)}</strong></p><p>💸 Cada unidade rende <strong>US$ 0,50 pro cafezinho</strong>. Pagou depois? Sem bis: essa unidade já ajudou! 😄</p><p class="help">Uma vez por unidade vendida ou recebida. Dívidas avulsas contam no primeiro pagamento, pela quantidade anotada. Contador informativo, sem transferência automática; começa nesta versão.</p>${commission.entries.length?`<h3>🤝 Quem abasteceu a cafeteira</h3><div class="payments">${commission.entries.slice(-10).reverse().map(entry=>`<div class="payment-row"><div><strong>${esc(entry.reason || 'Unidades registradas')}</strong><p class="meta">${esc(entry.units)} un. · ${esc(new Date(entry.createdAt).toLocaleDateString('pt-BR'))}</p></div><strong>${usd(entry.amountCents)}</strong></div>`).join('')}</div>`:'<p class="help">🚀 A cafeteira está pronta. O primeiro lançamento inaugura o fundo.</p>'}`,null,null);
 });
 window.addEventListener('storage',e=>{if(e.key===KEY){writable=false;stored++;status('Outra aba atualizou o painel. Clique em Atualizar.');render();}});
