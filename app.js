@@ -5,6 +5,7 @@ import { setupFeedback, unlockSound, reward, setAlissonBalance } from './feedbac
 import { currencyOf, formatMoney, convertCents } from './money.mjs';
 import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm } from './currency-ui.mjs';
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
+import { notesView, noteForm, noteToShipment, noteToDebt } from './notes.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -15,6 +16,7 @@ const normalize = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]
 const API = 'https://script.google.com/macros/s/AKfycbzAb-D01oLo_xwI_V20ViUFmcmW05I3zTOdBAc8-P05KLJNuAqHBheNmTcPvpfAIIP0/exec';
 const KEY = 'painel-puff:cache:v2';
 const PENDING_KEY = 'painel-puff:pending:v2';
+const NOTE_DRAFT_KEY = 'painel-puff:note-drafts:v1';
 let token = localStorage.getItem('chave') || '', state = {version:1,products:[],movements:[],debts:[]}, legacy = {itens:[],gastos:[],clientes:[],locais:[]};
 let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, pendingOperation;
 try{pendingOperation=JSON.parse(localStorage.getItem(PENDING_KEY));}catch{}
@@ -140,6 +142,7 @@ const headings = {
   locais:['Locais','Confira onde estão os seus produtos.','+ Novo local'],
   decisao:['Tomada de decisão','Números que ajudam a escolher o próximo passo.',''],
   envios:['Envios','O que saiu, com quem foi e para quem. Cada mês fica guardado.',''],
+  anotacoes:['Anotações','Escreva agora. Organize quando quiser.','+ Anotar'],
   arquivados:['Arquivados','Itens guardados para consulta ou restauração.','']
 };
 
@@ -153,14 +156,14 @@ function render() {
   $('#exchange-rate').textContent=reference.fxRate?`R$ ⇄ US$ · ${String(reference.fxRate).replace('.',',')}`:'R$ ⇄ US$ · Câmbio';
   $('#exchange-rate').disabled=!writable;
   $('#exchange-note').textContent=reference.fxRate?`Câmbio informado: US$ 1 = R$ ${String(reference.fxRate).replace('.',',')} · ${dateBR(reference.fxDate)}`:'Valores em R$ e US$. Equivalências aparecem ao informar um câmbio.';
-  $('#exchange-note').hidden=view==='envios';
-  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':view==='envios'?'envios':'';
+  $('#exchange-note').hidden=['envios','anotacoes'].includes(view);
+  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['envios','anotacoes'].includes(view)?view:'';
   document.querySelectorAll('[data-section]').forEach(b=>{b.classList.toggle('active',b.dataset.section===section);b.setAttribute('aria-current',b.dataset.section===section?'page':'false');});
   const sectionViews=section==='estoque'?[['estoque','Todos os produtos'],['mercadorias','Mercadorias']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
   $('#section-tabs').innerHTML=sectionViews.map(([name,label])=>`<button type="button" data-view="${name}">${label}</button>`).join('');
   $('#section-tabs').hidden=!sectionViews.length;
   $('#shipment-month').closest('label').hidden=view!=='envios';$('#shipment-month').value=shipmentMonth;
-  $('#search').placeholder=view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
+  $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').closest('label').hidden = view === 'decisao';
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
   $('#stock-filter').closest('label').hidden = view !== 'estoque';
@@ -172,6 +175,7 @@ function render() {
   document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active',b.dataset.view === view); b.setAttribute('aria-current',b.dataset.view === view ? 'page' : 'false'); });
   if (view === 'mercadorias' || view === 'estoque') renderProducts();
   else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search}):empty('Atualize a conexão para consultar os envios.');}
+  else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search}):empty('Conecte para carregar suas anotações.');}
   else if (view === 'devedores') {if(modulesLoaded)renderDebts();else{$('#summary').innerHTML='';$('#content').innerHTML=empty('A caderneta ainda não foi carregada. Atualize a conexão para consultar o saldo.');}}
   else if (view === 'decisao') {
     $('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?decisionView(legacy,state,{today:today(),category:categoryFilter,currency:decisionCurrency,reference}):empty('Atualize a conexão para carregar todos os módulos antes de analisar o painel.');
@@ -182,7 +186,7 @@ function render() {
     $('#summary').innerHTML = '';
     $('#content').innerHTML = legacyView(filteredLegacy(),view,search)+extraView();
   }
-  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt'].includes(b.dataset.action))b.disabled=true;});
+  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit'].includes(b.dataset.action))b.disabled=true;});
   setAlissonBalance(state.commission?.balanceCents || 0);
 }
 
@@ -232,7 +236,8 @@ function renderDebts() {
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining;
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
-    return `<article class="debt-card ${remaining?'debt-open':'debt-settled'}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
+    const paidRatio=Math.max(0,Math.min(1,paid/d.totalCents)), hue=paidRatio<=.5?paidRatio*80:40+(paidRatio-.5)*220;
+    return `<article class="debt-card debt-progress-color ${remaining?'debt-open':'debt-settled'}" style="--debt-hue:${Math.round(hue)}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
       <div class="debt-amount"><span class="meta">Falta receber</span><strong>${moneyHTML(remaining,d,state.settings)}</strong></div>
       <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid,d.currency))} de ${esc(money(d.totalCents,d.currency))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
       <div class="payment-row"><span class="meta">Abatido <b>${money(paid,d.currency)}</b></span><span class="meta">Total ${money(d.totalCents,d.currency)}</span></div>
@@ -253,7 +258,7 @@ function openDialog(title, fields, saveLabel, save) {
 }
 function closeDialog() { if (!$('#save-dialog').disabled) $('#editor').close(); }
 
-function productForm(id) {
+function productForm(id, sourceNote) {
   const product = state.products.find(p=>p.id===id);
   openDialog(product ? 'Editar produto' : 'Nova mercadoria',
     field('Nome do produto','name','text',product?.name || '','required maxlength="120" placeholder="Ex.: Kit de acessórios"')+
@@ -268,20 +273,22 @@ function productForm(id) {
       if (data.get('removePhoto')) photo = '';
       photo=await readPhoto(data.get('photo'),photo);
       const input={name:data.get('name'),stock:'mercadorias',category:data.get('category'),priceCents:cents(data.get('price')),costCents:String(data.get('cost')).trim()?cents(data.get('cost')):null,...readCurrencyForm(data,{cost:true}),minStock:Number(data.get('minStock')),notes:data.get('notes'),photo};
-      await save('puffProduto',{input,...(product?{productId:product.id,expected:product}:{})});
+      await save('puffProduto',{input,...noteSource(sourceNote),...(product?{productId:product.id,expected:product}:{})});
       toast(product?'Produto atualizado.':'Produto cadastrado. Registre a primeira entrada.');
     });
+  if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;if(draft.items.length===1)$('#f-name').value=draft.items[0].name;$('#f-notes').value=draft.notes;$('#mf-currency').value='';$('#mf-costCurrency').value='';attachNote(sourceNote,'Confira nome, moeda e preço. O produto será cadastrado; a quantidade entra depois em Entrada.');}
 }
 
-function debtForm() {
+function debtForm(sourceNote) {
   openDialog('Nova anotação de dívida',field('Quem deve?','name','text','','required maxlength="120" placeholder="Nome da pessoa"')+
     field('Sobre o que deve?','description','text','','required maxlength="200" placeholder="Ex.: iPhone, serviço, empréstimo…"')+
     field('Quantidade de itens neste combinado','units','number',1,'required min="1" max="1000000" step="1"')+
     currencyForm({currency:'BRL',...state.settings},{reference:state.settings})+
     `<div class="form-grid">${field('Valor total na moeda escolhida','total','text','','required inputmode="decimal" placeholder="2.000,00 → digite 2000,00"')}${field('Data da anotação','date','date',today(),'required')}</div>`+
     field('Vencimento (opcional)','dueDate','date')+notes(), 'Salvar dívida', async data=>{
-      await save('puffDivida',{input:{name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')}});toast('Dívida anotada.');
+      await save('puffDivida',{...noteSource(sourceNote),input:{name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')}});toast('Dívida anotada.');
     });
+  if(sourceNote){const draft=noteToDebt(sourceNote,today());for(const name of ['name','description','total','date','notes'])$('#f-'+name).value=draft.input[name]||'';$('#f-units').value=draft.input.units||1;$('#mf-currency').value=draft.input.currency||'';attachNote(sourceNote,'Confira pessoa, valor e moeda antes de registrar o valor a receber.',draft.warnings);}
 }
 function paymentForm(id) {
   const debt = state.debts.find(d=>d.id===id); if (!debt) return;
@@ -314,7 +321,7 @@ function paymentForm(id) {
   ['currency','fxRate','fxDate'].forEach(name=>$('#mf-'+name).addEventListener('input',updateRemaining));updateRemaining();
 }
 
-function movementForm(id,type) {
+function movementForm(id,type,sourceNote) {
   const p=state.products.find(p=>p.id===id); if(!p)return;
   const titles={entrada:'Registrar entrada',saida:'Registrar saída',transferencia:'Transferir entre locais'};
   const source=locationFilter || 'Depósito SP';
@@ -325,8 +332,9 @@ function movementForm(id,type) {
     field('Data','date','date',today(),'required')+notes(),'Salvar movimentação',async data=>{
       const quantity=Number(data.get('quantity')),unitPriceCents=type==='saida'?cents(data.get('unitPrice')):p.priceCents;
       const currency=type==='saida'?readCurrencyForm(data):{currency:p.currency,fxRate:p.fxRate,fxDate:p.fxDate};
-      await save('puffMovimento',{productId:id,input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
+      await save('puffMovimento',{productId:id,...noteSource(sourceNote),input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
     });
+  if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;$('#f-quantity').value=draft.items.length===1?draft.items[0].quantity:'';$('#f-date').value=draft.date||today();$('#f-notes').value=draft.notes;if(type==='saida')$('#f-client').value=draft.client;attachNote(sourceNote,'Confira produto, quantidade e local. Ao confirmar, esta operação altera o estoque.');}
   $('#f-location').addEventListener('change',()=>{$('#stock-at-location').textContent=`${balance(state,id,$('#f-location').value)} un. em ${$('#f-location').value}`;});
   if(type==='saida'){
     const updateTotal=()=>{try{$('#movement-total').textContent='Total da saída: '+money(Number($('#f-quantity').value)*cents($('#f-unitPrice').value),$('#mf-currency').value);}catch{$('#movement-total').textContent='Informe quantidade e valor por unidade.';}};
@@ -361,14 +369,64 @@ function debtDetails(id) {
   openDialog(`Histórico · ${d.name}`,`<p class="dialog-summary">${esc(d.description)}<br>Valor original <strong>${money(d.totalCents,d.currency)}</strong><br>Falta receber <strong>${money(debtBalance(d),d.currency)}</strong></p>${d.notes?`<p class="notes">${esc(d.notes)}</p>`:''}<h3>Pagamentos registrados</h3><div class="payments">${d.payments.slice().reverse().map(p=>`<div class="payment-row"><div><strong>${dateBR(p.date)}</strong>${p.note?`<p class="meta">${esc(p.note)}</p>`:''}<p class="meta">${p.receivedCents!=null?`Recebido: ${money(p.receivedCents,p.currency)}${p.fxRate?` · US$ 1 = R$ ${esc(p.fxRate)} · ${dateBR(p.fxDate)}`:''}`:'Registro anterior à identificação de moedas.'}</p></div><strong class="success">Abatido ${money(p.amountCents,d.currency)}</strong></div>`).join('') || empty('Ainda não houve pagamento. Cada recebimento ficará registrado aqui com a data.')}</div><p class="help">Dívida anotada em ${dateBR(d.date)}${d.dueDate?` · vencimento ${dateBR(d.dueDate)}`:''}.</p>`,null,null);
 }
 
-function shipmentEditor(id) {
-  const shipment=(state.shipments||[]).find(s=>s.id===id);
-  const form=shipmentForm(shipment,today());
-  openDialog(form.title,form.html,'Salvar envio',async data=>{
-    const input=form.build(data);
-    await save('puffEnvio',{input,...(shipment?{shipmentId:shipment.id,expected:shipment}:{})});
-    shipmentMonth=input.date.slice(0,7);render();toast('Envio registrado no mês correspondente.');
+function noteSource(note) { return note ? {sourceNoteId:note.id,expectedNote:note} : {}; }
+function attachNote(note, message, warnings=[]) {
+  $('#dialog-fields').insertAdjacentHTML('afterbegin',`<p class="help note-review">${esc(message)}</p><details class="note-source"><summary>Ver anotação original</summary><p class="note-text">${esc(note.text)}</p></details>${warnings.length?`<p class="help">${warnings.map(esc).join(' ')}</p>`:''}`);
+}
+function noteEditor(id) {
+  const note=(state.notes||[]).find(n=>n.id===id);
+  if(note?.convertedTo){openNoteTarget(note);return;}
+  let drafts={};try{drafts=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};}catch{}
+  const draftKey=id||'new', form=noteForm({...note,text:drafts[draftKey]??note?.text??''});
+  openDialog(form.title,form.html,'Salvar anotação',async data=>{
+    const input={...form.build(data),date:note?.date||today()};
+    await save('puffNota',{input,...(note?{noteId:note.id,expected:note}:{})});
+    try{const current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};delete current[draftKey];localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));}catch{}
+    view='anotacoes';search='';$('#search').value='';render();toast('Anotação salva. Escolha Organizar / enviar quando quiser.');
   });
+  const textarea=$('textarea[name="text"]');
+  textarea.addEventListener('input',()=>{try{const current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};current[draftKey]=textarea.value;localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));}catch{toast('Sem espaço para guardar o rascunho. Salve a anotação antes de sair.');}});
+  if(!writable)$('#form-error').textContent='Sem conexão para salvar na planilha. O rascunho fica neste aparelho enquanto você escreve.';
+  textarea.focus();
+}
+function noteDestination(id) {
+  const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
+  if(note.convertedTo){openNoteTarget(note);return;}
+  openDialog('Para onde vai esta anotação?',`<p class="help">Escolha o destino. Você revisa os campos antes de confirmar.</p><div class="note-destinations"><button type="button" data-action="note-to-shipment" data-id="${esc(id)}"><span aria-hidden="true">🚚</span><span><strong>Envios</strong><small>Transporte, cliente e mercadorias por mês</small></span><span aria-hidden="true">→</span></button><button type="button" data-action="note-to-debt" data-id="${esc(id)}"><span aria-hidden="true">💰</span><span><strong>Financeiro</strong><small>Registrar uma dívida / valor a receber</small></span><span aria-hidden="true">→</span></button><button type="button" data-action="note-to-stock" data-id="${esc(id)}"><span aria-hidden="true">📦</span><span><strong>Estoque</strong><small>Cadastrar mercadoria ou registrar entrada e saída</small></span><span aria-hidden="true">→</span></button></div><div class="card-actions"><button type="button" class="secondary" data-action="note-share" data-id="${esc(id)}">Compartilhar texto</button><button type="button" class="ghost" data-action="note-copy" data-id="${esc(id)}">Copiar</button></div>`,null,null);
+}
+function noteStockDestination(note) {
+  const draft=noteToShipment(note,today());
+  openDialog('Anotação → Estoque',`<p class="help">Mercadorias por quantidade. Escolha o que deseja registrar.</p><button type="button" class="secondary" data-action="note-to-product" data-id="${esc(note.id)}">+ Cadastrar novo produto</button>${state.products.length?`<hr><label class="field" for="note-product"><span>Produto já cadastrado</span><select id="note-product"><option value="">Escolha o produto</option>${state.products.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><div class="card-actions"><button type="button" class="secondary" data-action="note-to-entry" data-id="${esc(note.id)}">↓ Entrada</button><button type="button" class="primary" data-action="note-to-exit" data-id="${esc(note.id)}">↑ Saída / venda</button></div>`:'<p class="help">Cadastre a mercadoria para começar a controlar sua quantidade.</p>'}`,null,null);
+  attachNote(note,draft.input.items.length>1?'Esta anotação tem vários itens. Para movimentar o estoque, separe uma anotação por produto. Envios aceita a lista completa.':'Você confere a quantidade e o local na próxima etapa.');
+  if(draft.input.items.length>1)document.querySelectorAll('[data-action="note-to-entry"],[data-action="note-to-exit"]').forEach(b=>b.disabled=true);
+  const matching=state.products.filter(p=>draft.input.items.length===1&&normalize(p.name)===normalize(draft.input.items[0].name));
+  if(matching.length===1)$('#note-product').value=matching[0].id;
+}
+function openNoteTarget(note) {
+  const target=note.convertedTo;if(!target)return;
+  if(target.type==='shipment'){const shipment=(state.shipments||[]).find(s=>s.id===target.id);if(shipment){view='envios';shipmentMonth=shipment.date.slice(0,7);search='';$('#search').value='';$('#editor').close();render();shipmentEditor(shipment.id);}}
+  else if(target.type==='debt'){view='devedores';render();debtDetails(target.id);}
+  else if(target.type==='product')productDetails(target.id);
+  else if(target.type==='movement'){const movement=state.movements.find(m=>m.id===target.id);if(movement)productDetails(movement.productId);}
+}
+async function shareNote(id,copyOnly=false) {
+  const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
+  try {
+    if(!copyOnly&&navigator.share){await navigator.share({title:'Anotação · Puff',text:note.text});return;}
+    if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(note.text);toast('Texto copiado. Cole onde quiser enviar.');return;}
+  } catch(error){if(error.name==='AbortError')return;}
+  openDialog('Copiar anotação',`<p class="help">Selecione e copie o texto para enviar pelo aplicativo que preferir.</p><textarea id="note-copy-text" aria-label="Texto para copiar" readonly rows="10">${esc(note.text)}</textarea>`,null,null);$('#note-copy-text').select();
+}
+function shipmentEditor(id, sourceNote) {
+  const shipment=(state.shipments||[]).find(s=>s.id===id);
+  const draft=sourceNote?noteToShipment(sourceNote,today()):null;
+  const form=shipmentForm(draft?.input||shipment,today());
+  openDialog(sourceNote?'Anotação → Envio':form.title,form.html,'Salvar envio',async data=>{
+    const input=form.build(data);
+    await save('puffEnvio',{input,...noteSource(sourceNote),...(shipment?{shipmentId:shipment.id,expected:shipment}:{})});
+    if(sourceNote)view='envios';shipmentMonth=input.date.slice(0,7);render();toast('Envio registrado no mês correspondente.');
+  });
+  if(sourceNote){$('#sf-date').value=draft.input.date;attachNote(sourceNote,'Confira o transporte, o cliente, a data e as quantidades.',draft.warnings);}
 }
 $('#search').addEventListener('input',e=>{search=e.target.value;render();});
 $('#shipment-month').addEventListener('change',e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)){shipmentMonth=e.target.value;render();}});
@@ -385,7 +443,8 @@ function originalForm(kind,id){
   });
 }
 $('#new-entry').addEventListener('click',()=>{
-  if(view==='devedores')debtForm();
+  if(view==='anotacoes')noteEditor();
+  else if(view==='devedores')debtForm();
   else if(view==='gastos')originalForm('expense');
   else if(view==='locais')openDialog('Novo local',field('Nome do local','nome','text','','required maxlength="120"'),'Salvar local',async data=>save('local',{nome:data.get('nome')}));
   else if(view==='estoque'&&stockFilter!=='mercadorias')openDialog('Adicionar ao estoque','<p>Escolha como controlar o produto.</p><div class="card-actions"><button type="button" class="primary" data-action="new-legacy">Aparelho individual</button><button type="button" class="secondary" data-action="new-catalog">Mercadoria por quantidade</button></div>',null,null);
@@ -393,10 +452,25 @@ $('#new-entry').addEventListener('click',()=>{
 });
 document.addEventListener('click',e=>{
   const nav=e.target.closest('[data-view],[data-section]');
-  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios'}[nav.dataset.section]);if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();if(nav.dataset.section==='anotacoes'&&modulesLoaded)noteEditor();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
+  if(a==='note-new'||a==='note-edit'){noteEditor(id);return;}
+  if(a==='note-convert'){noteDestination(id);return;}
+  if(a==='note-share'||a==='note-copy'){shareNote(id,a==='note-copy').catch(error=>toast(error.message));return;}
+  if(a==='note-open'||a.startsWith('note-to-')){
+    const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
+    if(a==='note-open'){openNoteTarget(note);return;}
+    if(!writable)throw new Error('Atualize a conexão antes de organizar a anotação.');
+    if(note.convertedTo){openNoteTarget(note);return;}
+    if(a==='note-to-shipment')shipmentEditor(undefined,note);
+    else if(a==='note-to-debt')debtForm(note);
+    else if(a==='note-to-stock')noteStockDestination(note);
+    else if(a==='note-to-product')productForm(undefined,note);
+    else if(a==='note-to-entry'||a==='note-to-exit'){const productId=$('#note-product').value;if(!productId)throw new Error('Escolha o produto para continuar.');movementForm(productId,a==='note-to-entry'?'entrada':'saida',note);}
+    return;
+  }
   if(a==='clear-filters'){stockFilter='';locationFilter='';categoryFilter='';$('#stock-filter').value='';$('#category-filter').value='';render();return;}
   if(a==='use-fx'){
     for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
@@ -445,7 +519,7 @@ $('#change-key').addEventListener('click',auth);
 $('#alisson-balance').addEventListener('click',()=>{
   const commission=state.commission || {balanceCents:0,entries:[]};
   const usd=value=>money(value,'USD');
-  openDialog('Uma nobre causa: o café do Alisson ☕',`<p>📦 Você cuida do estoque. ☕ O Alisson cuida do café que mantém as ideias funcionando.</p><p class="dialog-summary">💰 Fundo do cafezinho <strong>${usd(commission.balanceCents)}</strong></p><p>💸 Cada unidade rende <strong>US$ 0,50 pro cafezinho</strong>. Pagou depois? Sem bis: essa unidade já ajudou! 😄</p><p class="help">Uma vez por unidade vendida ou recebida. Dívidas avulsas contam no primeiro pagamento, pela quantidade anotada. Contador informativo, sem transferência automática; começa nesta versão.</p>${commission.entries.length?`<h3>🤝 Quem abasteceu a cafeteira</h3><div class="payments">${commission.entries.slice(-10).reverse().map(entry=>`<div class="payment-row"><div><strong>${esc(entry.reason || 'Unidades registradas')}</strong><p class="meta">${esc(entry.units)} un. · ${esc(new Date(entry.createdAt).toLocaleDateString('pt-BR'))}</p></div><strong>${usd(entry.amountCents)}</strong></div>`).join('')}</div>`:'<p class="help">🚀 A cafeteira está pronta. O primeiro lançamento inaugura o fundo.</p>'}`,null,null);
+  openDialog('Uma nobre causa: o café do Alisson ☕',`<p>📦 Você cuida do estoque. ☕ O Alisson cuida do café que mantém as ideias funcionando.</p><p class="dialog-summary">💰 Fundo do cafezinho <strong>${usd(commission.balanceCents)}</strong></p><p>❄️ Cada ar-condicionado vendido rende <strong>US$ 0,50 pro cafezinho</strong>. Clima fresco, café quentinho! ☕😄</p><p class="help">Somente unidades de ar-condicionado vendidas. Dívidas, recebimentos e outras mercadorias não entram. Contador informativo, sem transferência automática.</p>${commission.entries.length?`<h3>🤝 Quem abasteceu a cafeteira</h3><div class="payments">${commission.entries.slice(-10).reverse().map(entry=>`<div class="payment-row"><div><strong>${esc(entry.reason || 'Unidades registradas')}</strong><p class="meta">${esc(entry.units)} un. · ${esc(new Date(entry.createdAt).toLocaleDateString('pt-BR'))}</p></div><strong>${usd(entry.amountCents)}</strong></div>`).join('')}</div>`:'<p class="help">🚀 A cafeteira está pronta. O primeiro lançamento inaugura o fundo.</p>'}`,null,null);
 });
 window.addEventListener('storage',e=>{if(e.key===KEY){writable=false;stored++;status('Outra aba atualizou o painel. Clique em Atualizar.');render();}});
 setupFeedback();render();load();

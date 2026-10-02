@@ -2,6 +2,20 @@ import { currencyFields, transactionCurrencyFields, currencyOf, convertCents } f
 
 export const LOCATIONS = Object.freeze(['Loja', 'Depósito SP']);
 
+export function classifyCategory(item = {}) {
+  const normalize = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const explicit = normalize(item.category || item.categoria);
+  if (/^(peptideos?|peptides?)$/.test(explicit)) return 'peptideos';
+  if (/^(ar[ -]?condicionados?|climatizacao|ares[ -]?condicionados?)$/.test(explicit)) return 'ar-condicionados';
+  if (explicit) return 'mercadorias';
+  const name = normalize(item.name || item.modelo || item.nome);
+  if (/\b(motor|compressor|pecas?|suporte|controle|placa|capacitor|turbina)\b/.test(name)) return 'mercadorias';
+  if (/\b(ar[ -]?condicionado|split|btu|btus)\b/.test(name)) return 'ar-condicionados';
+  if (/\b(climax|conlux|gree|sleiman|tcl)\b/.test(name) && /\b(?:7|9|12|18|24|30|36|48|60)\s*mil\b/.test(name)) return 'ar-condicionados';
+  if (/\b(peptideos?|tirzepatida|tirzepatide|tirzec|retatrutide|retatrutida|semaglutida|semaglutide|ghk[ -]?cu|guk[ -]?cu|tg|t\.g\.)\b/.test(name)) return 'peptideos';
+  return 'mercadorias';
+}
+
 function text(value, label, max = 1000, required = false) {
   if (value == null && !required) return '';
   if (typeof value !== 'string' || value.trim().length > max || (required && !value.trim())) {
@@ -171,6 +185,36 @@ function shipmentFields(input) {
     items: input.items.map(item => ({ name: text(item?.name, 'Mercadoria', 120, true), quantity: integer(item?.quantity, 'Quantidade', 1, 1000000) })) };
 }
 
+function noteFields(input) {
+  return { text: text(input.text, 'Anotação', 6000, true), date: date(input.date, 'Data da anotação') };
+}
+
+export function addNote(state, input) {
+  const note = { id: crypto.randomUUID(), ...noteFields(input), createdAt: new Date().toISOString() };
+  if (!state.notes) state.notes = [];
+  state.notes.push(note);
+  return note;
+}
+
+export function updateNote(state, id, input) {
+  const note = (state.notes || []).find(item => item.id === id);
+  if (!note) throw new Error('Anotação não encontrada.');
+  if (note.convertedTo) throw new Error('Esta anotação já foi convertida. Abra o lançamento para fazer ajustes.');
+  Object.assign(note, noteFields({ ...note, ...input }), { updatedAt: new Date().toISOString() });
+  return note;
+}
+
+export function markNoteConverted(state, noteId, type, targetId) {
+  const note = (state.notes || []).find(item => item.id === noteId);
+  if (!note) throw new Error('Anotação não encontrada.');
+  if (note.convertedTo) throw new Error('Esta anotação já foi convertida. Abra o lançamento existente.');
+  const target = ({ shipment: state.shipments, debt: state.debts, movement: state.movements, product: state.products }[type] || []).find(item => item.id === targetId);
+  if (!target || target.sourceNoteId) throw new Error('Destino da anotação inválido.');
+  target.sourceNoteId = note.id;
+  Object.assign(note, { convertedTo: { type, id: targetId }, updatedAt: new Date().toISOString() });
+  return note;
+}
+
 export function addShipment(state, input) {
   const shipment = { id: crypto.randomUUID(), ...shipmentFields(input), createdAt: new Date().toISOString() };
   if (!state.shipments) state.shipments = [];
@@ -220,6 +264,25 @@ export function validateState(state) {
   }
   if (state.shipments !== undefined && !Array.isArray(state.shipments)) throw new Error('Histórico de envios inválido.');
   (state.shipments || []).forEach(shipment => { identify(shipment, true); shipmentFields(shipment); });
+  if (state.notes !== undefined && !Array.isArray(state.notes)) throw new Error('Histórico de anotações inválido.');
+  (state.notes || []).forEach(note => {
+    identify(note, true); noteFields(note);
+    if (note.updatedAt !== undefined && (typeof note.updatedAt !== 'string' || !Number.isFinite(Date.parse(note.updatedAt)))) {
+      throw new Error('Anotação sem data de atualização válida.');
+    }
+    if (note.convertedTo !== undefined) {
+      const target = note.convertedTo && ({ shipment: state.shipments, debt: state.debts, movement: state.movements, product: state.products }[note.convertedTo.type] || [])
+        .find(item => item.id === note.convertedTo.id);
+      if (!target || target.sourceNoteId !== note.id) throw new Error('Anotação sem lançamento correspondente.');
+    }
+  });
+  for (const [type, targets] of Object.entries({ shipment: state.shipments || [], debt: state.debts, movement: state.movements, product: state.products })) {
+    targets.forEach(target => {
+      if (target.sourceNoteId !== undefined && !(state.notes || []).some(note => note.id === target.sourceNoteId && note.convertedTo?.type === type && note.convertedTo.id === target.id)) {
+        throw new Error('Lançamento sem anotação correspondente.');
+      }
+    });
+  }
   if (state.settings) currencyFields(state.settings);
   return true;
 }

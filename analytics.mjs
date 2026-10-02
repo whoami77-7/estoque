@@ -1,4 +1,6 @@
 import { currencyOf, formatMoney, convertCents } from './money.mjs';
+import { classifyCategory } from './model.mjs';
+export { classifyCategory };
 
 const DAY = 86400000;
 const categories = { peptideos: 'Peptídeos', 'ar-condicionados': 'Ar-condicionados', mercadorias: 'Mercadorias' };
@@ -6,18 +8,6 @@ const norm = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u03
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const count = value => Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
 const array = value => Array.isArray(value) ? value : [];
-
-export function classifyCategory(item = {}) {
-  const explicit = norm(item.category || item.categoria);
-  if (/^(peptideos?|peptides?)$/.test(explicit)) return 'peptideos';
-  if (/^(ar[ -]?condicionados?|climatizacao|ares[ -]?condicionados?)$/.test(explicit)) return 'ar-condicionados';
-  if (explicit) return 'mercadorias';
-  const name = norm(item.name || item.modelo || item.nome);
-  if (/\b(ar[ -]?condicionado|split|btu|btus)\b/.test(name)) return 'ar-condicionados';
-  if (!/\b(motor|compressor|pecas?|suporte|controle)\b/.test(name) && /\b(climax|conlux|gree|sleiman|tcl)\b/.test(name) && /\b(?:7|9|12|18|24|30|36|48|60)\s*mil\b/.test(name)) return 'ar-condicionados';
-  if (/\b(peptideos?|tirzepatida|tirzepatide|tirzec|retatrutide|retatrutida|semaglutida|semaglutide|ghk[ -]?cu|guk[ -]?cu|tg|t\.g\.)\b/.test(name)) return 'peptideos';
-  return 'mercadorias';
-}
 
 function date(value) {
   if (typeof value !== 'string') return null;

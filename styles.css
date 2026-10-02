@@ -439,6 +439,33 @@ dialog::backdrop { background: #030815ba; }
 .filter-options > summary { min-height: 44px; cursor: pointer; padding: 11px 15px; color: var(--dim); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
 .filter-options[open] { flex-basis: 100%; }
 .filter-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 0; }
+.nav-more > summary { display: flex; align-items: center; gap: 9px; min-height: 44px; color: #d7e5ff; font-weight: 650; background: #233553; border: 1px solid #6b8ebd; border-radius: 10px; list-style: none; }
+.nav-more > summary::-webkit-details-marker { display: none; }
+.nav-more > summary:hover, .nav-more[open] > summary { background: #304b70; border-color: #9fbeeb; }
+.nav-more[open] .more-chevron { transform: rotate(180deg); }
+.main-tabs .notes-shortcut { color: #ffe1a1; background: #332b1f; border-color: #a38142; font-weight: 700; border-radius: 10px; }
+.main-tabs .notes-shortcut:hover { color: #fff0cf; background: #4b3b21; }
+.main-tabs .notes-shortcut.active { background: #f0cc82; color: #282011; border-color: #f0cc82; }
+.note-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.note-card { padding: 14px 16px; }
+.note-card .card-actions { margin-top: 0; padding-top: 6px; }
+.note-card .shipment-summary { min-height: 55px; }
+.note-content > summary { min-width: 0; }
+.note-content > summary > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.note-source { margin: 0 0 18px; color: var(--dim); font-size: 13px; }
+.note-source > summary { cursor: pointer; min-height: 44px; padding: 10px 0; }
+.note-source .note-text { max-height: 220px; overflow-y: auto; margin-top: 4px; padding: 10px 14px; background: var(--bg); border-radius: 8px; }
+.note-destinations { display: flex; flex-direction: column; gap: 10px; }
+.note-destinations > button { justify-content: flex-start; text-align: left; padding: 15px; border-color: var(--line); }
+.note-destinations > button > span:first-child { font-size: 25px; flex: none; }
+.note-destinations > button > span:nth-child(2) { flex: 1; }
+.note-destinations strong, .note-destinations small { display: block; }
+.note-destinations small { color: var(--dim); font-weight: 400; font-size: 12px; margin-top: 4px; }
+#nf-text { min-height: 220px; line-height: 1.6; }
+.debt-progress-color { background: hsl(var(--debt-hue) 24% 13%); border-color: hsl(var(--debt-hue) 38% 42%); border-left-width: 1px; }
+.debt-progress-color .debt-person h2, .debt-progress-color .debt-amount strong { color: hsl(var(--debt-hue) 78% 78%); }
+.debt-progress-color .avatar, .debt-progress-color .badge { color: hsl(var(--debt-hue) 78% 80%); background: hsl(var(--debt-hue) 30% 22%); border-color: hsl(var(--debt-hue) 38% 42%); }
+.debt-progress-color .debt-progress > span { background: hsl(var(--debt-hue) 64% 67%); }
 @media(max-width:540px) {
   .page-heading p { display: none; }
   .toolbar { flex-wrap: nowrap; align-items: center; }
@@ -449,6 +476,10 @@ dialog::backdrop { background: #030815ba; }
   .nav-more { margin-left: 0; }
   .nav-more > summary { font-size: 12px; padding-inline: 8px; }
   .main-tabs .more-options button { flex: 1; }
+  .main-tabs .notes-shortcut { flex: 1 0 48%; }
+  .main-tabs .nav-more { flex: 1 0 44%; }
+  .main-tabs .nav-more > summary { justify-content: center; }
+  .main-tabs .nav-more[open] { flex-basis: 100%; }
   .section-tabs { gap: 0; }
   .section-tabs button { flex: 1; padding-inline: 8px; font-size: 12px; }
   .shipment-line { grid-template-columns: minmax(0,1fr) 78px 36px; gap: 6px; }
