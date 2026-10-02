@@ -209,12 +209,12 @@ function renderDebts() {
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining;
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
-    return `<article class="debt-card"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':late?'low':''}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
+    return `<article class="debt-card ${remaining?'debt-open':'debt-settled'}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
       <div class="debt-amount"><span class="meta">Falta receber</span><strong>${money(remaining)}</strong></div>
       <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid))} de ${esc(money(d.totalCents))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
       <div class="payment-row"><span class="meta">Recebido <b>${money(paid)}</b></span><span class="meta">Total ${money(d.totalCents)}</span></div>
       <p class="notes">${d.payments.length ? `Último pagamento: ${money(d.payments[d.payments.length-1].amountCents)} em ${dateBR(d.payments[d.payments.length-1].date)}` : `Anotado em ${dateBR(d.date)}`}${d.dueDate ? ` · Vence ${dateBR(d.dueDate)}` : ''}</p>
-      <div class="card-actions">${remaining ? action('payment',d.id,'+ Registrar pagamento','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Ver histórico','secondary')}</div></article>`;
+      <div class="card-actions">${remaining ? action('payment',d.id,'+ Registrar pagamento parcial','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Ver histórico','secondary')}</div></article>`;
   }).join('')}</div>` : empty('Nenhuma dívida encontrada. Anote o nome, o motivo e o valor para começar.');
 }
 
@@ -260,10 +260,23 @@ function debtForm() {
 }
 function paymentForm(id) {
   const debt = state.debts.find(d=>d.id===id); if (!debt) return;
-  openDialog(`Pagamento de ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>Saldo atual <strong>${money(debtBalance(debt))}</strong></p>`+
-    `<div class="form-grid">${field('Valor recebido (R$)','amount','text','','required inputmode="decimal" placeholder="Ex.: 500,00"')}${field('Data do pagamento','date','date',today(),`required min="${esc(debt.date)}"`)}</div>`+notes(), 'Registrar pagamento',async data=>{
+  const remaining = debtBalance(debt);
+  openDialog(`Pagamento de ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>Saldo atual <strong>${money(remaining)}</strong></p><p class="help">Receba uma parte ou o valor total. O restante continua em aberto, com cada pagamento salvo no histórico.</p>`+
+    `<div class="form-grid">${field('Valor recebido agora (R$)','amount','text','','required inputmode="decimal" placeholder="Ex.: 500,00" aria-describedby="payment-remaining"')}${field('Data do pagamento','date','date',today(),`required min="${esc(debt.date)}"`)}</div><p id="payment-remaining" class="payment-preview" role="status"></p>`+notes(), 'Registrar pagamento',async data=>{
       await save('puffPagamento',{debtId:id,input:{amountCents:cents(data.get('amount')),date:data.get('date'),note:data.get('notes')}},'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
     });
+  const preview = $('#payment-remaining');
+  const updateRemaining = () => {
+    preview.classList.remove('success');
+    try {
+      const amount = cents($('#f-amount').value);
+      if(!amount)throw new Error();
+      if(amount>remaining){preview.textContent=`O pagamento não pode ultrapassar o saldo de ${money(remaining)}.`;return;}
+      preview.textContent=amount===remaining?'✓ Este pagamento quita a dívida.':`Após este pagamento, falta receber ${money(remaining-amount)}.`;
+      preview.classList.toggle('success',amount===remaining);
+    } catch { preview.textContent='Digite o valor recebido para conferir quanto ainda falta.'; }
+  };
+  $('#f-amount').addEventListener('input',updateRemaining);updateRemaining();
 }
 
 function movementForm(id,type) {

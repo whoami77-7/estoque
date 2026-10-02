@@ -147,6 +147,12 @@ textarea { resize: vertical; min-height: 94px; }
 .chip { font-size: 12px; padding: 5px 9px; color: var(--dim); background: #11192e; border: 1px solid var(--line); border-radius: 7px; }
 .debt-list { display: flex; flex-direction: column; gap: 14px; }
 .debt-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 21px 23px; }
+.debt-open { background: #241a2b; border-color: #8a4658; border-left: 4px solid var(--bad); }
+.debt-open .debt-person h2, .debt-open .debt-amount strong { color: var(--bad); }
+.debt-open .avatar { color: var(--bad); background: #432736; border-color: #8a4658; }
+.debt-settled .debt-amount strong { color: var(--ok); }
+.payment-preview { padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card2); color: var(--bad); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.payment-preview.success { color: var(--ok); }
 .debt-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .debt-top h2, .debt-top h3 { margin: 0 0 4px; font-size: 17px; font-weight: 670; }
 .debt-top > :first-child { min-width: 0; }
