@@ -394,6 +394,19 @@ dialog::backdrop { background: #030815ba; }
 .section-tabs { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 12px; }
 .section-tabs button { background: transparent; color: var(--dim); font-size: 13px; padding: 8px 12px; }
 .section-tabs .active { background: var(--card2); color: var(--txt); border-color: var(--line); }
+.section-tabs.stock-tabs { gap: 8px; }
+.section-tabs.stock-tabs button { min-height: 44px; color: #d7e5ff; border-color: #405475; background: #162139; font-weight: 650; }
+.section-tabs.stock-tabs button[data-stock="mercadorias"] { color: #ead7ff; border-color: #705989; background: #2b213c; }
+.section-tabs.stock-tabs button[data-location="Depósito SP"] { color: #bfeee6; border-color: #39786f; background: #162e2e; }
+.section-tabs.stock-tabs button.active { color: #101a2c; background: #c3d8fb; border-color: #c3d8fb; }
+.section-tabs.stock-tabs button[data-stock="mercadorias"].active { background: #ddc0f5; border-color: #ddc0f5; }
+.section-tabs.stock-tabs button[data-location="Depósito SP"].active { background: #afe0d5; border-color: #afe0d5; }
+.active-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -8px 0 18px; }
+.active-filters .chip { overflow-wrap: anywhere; }
+.active-filters .ghost { min-height: 36px; font-size: 12px; }
+.stock-empty { margin-top: 18px; }
+.stock-empty p { max-width: 580px; margin: 12px auto; }
+.stock-empty .card-actions { justify-content: center; }
 .card-details { border-top: 1px solid var(--line); margin-top: 14px; }
 .card-details > summary { padding: 12px 0; min-height: 44px; cursor: pointer; color: var(--dim); font-size: 12px; }
 .card-details .card-values { margin-top: 4px; }
@@ -469,22 +482,31 @@ dialog::backdrop { background: #030815ba; }
 .debt-progress-color .debt-person h2, .debt-progress-color .debt-amount strong { color: hsl(var(--debt-hue) 78% 78%); }
 .debt-progress-color .avatar, .debt-progress-color .badge { color: hsl(var(--debt-hue) 78% 80%); background: hsl(var(--debt-hue) 30% 22%); border-color: hsl(var(--debt-hue) 38% 42%); }
 .debt-progress-color .debt-progress > span { background: hsl(var(--debt-hue) 64% 67%); }
+.card-actions [data-action="debt-delete"], .card-actions [data-action="payment-delete"] { color: var(--bad); }
+.debt-card .card-actions button, .payment-row .card-actions button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.payment-row > div { min-width: 0; flex: 1; }
+.payment-row .card-actions { width: 100%; flex-wrap: wrap; }
+.payment-row .card-actions button { flex: 1 1 145px; }
 @media(max-width:540px) {
   .page-heading p { display: none; }
   .toolbar { flex-wrap: nowrap; align-items: center; }
   .summary-strip:not(:has(.money-stack)) { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 14px; }
   .summary-strip:not(:has(.money-stack)) .stat { min-width: 0; }
-  .main-tabs { display: flex; flex-wrap: wrap; gap: 5px; }
-  .main-tabs > button { flex: 1; padding: 9px 8px; font-size: 12px; min-width: 0; }
+  .main-tabs { display: grid; grid-template-columns: repeat(6,minmax(0,1fr)); gap: 5px; }
+  .main-tabs > button { grid-column: span 2; padding: 9px 6px; font-size: 12px; min-width: 0; }
   .nav-more { margin-left: 0; }
   .nav-more > summary { font-size: 12px; padding-inline: 8px; }
   .main-tabs .more-options button { flex: 1; }
-  .main-tabs .notes-shortcut { flex: 1 0 48%; }
-  .main-tabs .nav-more { flex: 1 0 44%; }
+  .main-tabs .notes-shortcut { grid-column: span 3; }
+  .main-tabs .nav-more { grid-column: span 3; min-width: 0; }
   .main-tabs .nav-more > summary { justify-content: center; }
-  .main-tabs .nav-more[open] { flex-basis: 100%; }
+  .main-tabs .nav-more[open] { grid-column: 1 / -1; }
   .section-tabs { gap: 0; }
   .section-tabs button { flex: 1; padding-inline: 8px; font-size: 12px; }
+  .section-tabs.stock-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .filter-bar > .location-field { flex-direction: row; flex: 1 1 60%; align-items: center; }
+  .filter-bar > .location-field select { min-width: 0; flex: 1; }
+  .debt-card > .card-actions button { flex: 1 1 140px; }
   .shipment-line { grid-template-columns: minmax(0,1fr) 78px 36px; gap: 6px; }
   .shipment-line .shipment-remove { min-width: 36px; }
   .shipment-summary { gap: 8px; }

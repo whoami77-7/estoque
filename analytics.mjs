@@ -136,11 +136,13 @@ export function analyze(legacyData = {}, state = {}, options = {}) {
   }
   // Pagamentos são caixa, não uma segunda venda. A categoria não é conhecida nas dívidas avulsas.
   for (const debt of array(state.debts)) {
+    if (debt?.deletedAt) continue;
     const origin = date(debt?.date), total = cents(debt?.totalCents);
     if (total == null || !origin || origin > today) continue;
     let paid = 0;
     const seen = new Set();
     for (const [index, payment] of array(debt.payments).entries()) {
+      if (payment?.deletedAt) continue;
       const identity = payment?.id || `index:${index}`;
       if (seen.has(identity)) continue;
       seen.add(identity);

@@ -57,27 +57,20 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4 4"/></svg>
           <input id="search" type="search" placeholder="Buscar produto, cliente ou observação" autocomplete="off">
         </label>
-        <details class="filter-options" id="filter-options"><summary id="filter-options-title">Filtros</summary><div class="filter-controls">
-        <label class="stock-field" for="stock-filter">
-          <span>Estoque</span>
-          <select id="stock-filter">
-            <option value="">Todos</option>
-            <option value="principal">Principal</option>
-            <option value="mercadorias">Mercadorias</option>
-          </select>
-        </label>
-        <label class="category-field" for="category-filter"><span>Categoria</span><select id="category-filter"><option value="">Todas</option><option value="peptideos">Peptídeos</option><option value="ar-condicionados">Ar-condicionados</option><option value="mercadorias">Mercadorias</option></select></label>
         <label class="location-field" for="location-filter">
           <span>Local</span>
           <select id="location-filter">
-            <option value="all">Todos os locais</option>
+            <option value="">Todos os locais</option>
             <option value="Loja">Loja</option>
             <option value="Depósito SP">Depósito SP</option>
           </select>
         </label>
+        <details class="filter-options" id="filter-options"><summary id="filter-options-title">Categoria</summary><div class="filter-controls">
+        <label class="category-field" for="category-filter"><span>Categoria</span><select id="category-filter"><option value="">Todas</option><option value="peptideos">Peptídeos</option><option value="ar-condicionados">Ar-condicionados</option><option value="mercadorias">Mercadorias</option></select></label>
         <button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>
         </div></details>
       </div>
+      <div id="active-filters" class="active-filters" role="status" hidden></div>
 
       <div id="content" tabindex="-1"></div>
     </main>

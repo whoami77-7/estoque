@@ -77,7 +77,7 @@ function debtFields(input, requireCurrency = false) {
   };
 }
 
-function paymentFields(debt, input, historical = false) {
+function paymentFields(debt, input, historical = false, active = true) {
   let amountCents, metadata = {};
   if (historical && input.receivedCents === undefined) {
     amountCents = integer(input.amountCents, 'Pagamento em centavos', 1);
@@ -98,8 +98,8 @@ function paymentFields(debt, input, historical = false) {
     metadata.receivedCents = receivedCents;
   }
   const paidDate = date(input.date, 'Data do pagamento');
-  if (paidDate < debt.date) throw new Error('O pagamento não pode ser anterior à dívida.');
-  if (amountCents > debtBalance(debt)) throw new Error('O pagamento não pode superar o saldo devedor.');
+  if (active && paidDate < debt.date) throw new Error('O pagamento não pode ser anterior à dívida.');
+  if (active && amountCents > debtBalance(debt)) throw new Error('O pagamento não pode superar o saldo devedor.');
   return { ...metadata, amountCents, date: paidDate, note: text(input.note, 'Observação do pagamento') };
 }
 
@@ -137,7 +137,36 @@ export function balance(state, productId, selectedLocation) {
 }
 
 export function debtBalance(debt) {
-  return debt.payments.reduce((remaining, payment) => remaining - payment.amountCents, debt.totalCents);
+  return debt.payments.reduce((remaining, payment) => remaining - (payment.deletedAt === undefined ? payment.amountCents : 0), debt.totalCents);
+}
+
+function revisedAt(item) {
+  return new Date(Math.max(Date.now(), (Date.parse(item.updatedAt || item.createdAt) || 0) + 1)).toISOString();
+}
+
+function setDeleted(item, deleted, label) {
+  if (typeof deleted !== 'boolean') throw new Error('Estado de exclusão inválido.');
+  if (deleted === (item.deletedAt !== undefined)) throw new Error(`${label}: este registro ${deleted ? 'já está' : 'não está'} excluído.`);
+  const timestamp = revisedAt(item);
+  if (deleted) item.deletedAt = timestamp;
+  else delete item.deletedAt;
+  item.updatedAt = timestamp;
+  return item;
+}
+
+function validateRevision(item) {
+  for (const key of ['updatedAt', 'deletedAt']) {
+    if (item[key] !== undefined && (typeof item[key] !== 'string' || !Number.isFinite(Date.parse(item[key])) ||
+        new Date(item[key]).toISOString() !== item[key])) throw new Error('Registro sem data de revisão ou exclusão válida.');
+  }
+}
+
+function validateDebtPayments(debt) {
+  const replay = { ...debt, payments: [] };
+  for (const payment of debt.payments) {
+    paymentFields(replay, payment, true, payment.deletedAt === undefined);
+    replay.payments.push(payment);
+  }
 }
 
 export function addProduct(state, input) {
@@ -164,11 +193,75 @@ export function addDebt(state, input) {
   return debt;
 }
 
+export function updateDebt(state, id, input) {
+  const debt = state.debts.find(item => item.id === id);
+  if (!debt) throw new Error('Dívida não encontrada.');
+  if (debt.deletedAt !== undefined) throw new Error('Restaure a dívida antes de editar.');
+  const next = debtFields({ ...debt, ...input });
+  if (['currency', 'fxRate', 'fxDate'].some(key => input[key] !== undefined)) {
+    Object.assign(next, transactionCurrencyFields({ ...debt, ...input }, Boolean(currencyOf(debt))));
+  }
+  if (currencyOf(debt) && !currencyOf(next)) throw new Error('Escolha uma moeda para preservar a identificação da dívida.');
+  if (currencyOf(debt) && currencyOf(debt) !== currencyOf(next) && debt.payments.length) {
+    throw new Error('Uma dívida com pagamentos históricos não pode trocar de moeda.');
+  }
+  const movement = state.movements.find(item => item.id === (debt.originMovementId || debt.movementId));
+  if (movement && currencyOf(movement) && currencyOf(movement) !== currencyOf(next)) {
+    throw new Error('A moeda da dívida deve corresponder à moeda da venda vinculada.');
+  }
+  validateDebtPayments({ ...debt, ...next });
+  Object.assign(debt, next, { updatedAt: revisedAt(debt) });
+  return debt;
+}
+
+export function setDebtDeleted(state, id, deleted) {
+  const debt = state.debts.find(item => item.id === id);
+  if (!debt) throw new Error('Dívida não encontrada.');
+  validateDebtPayments(debt);
+  return setDeleted(debt, deleted, 'Dívida');
+}
+
 export function addPayment(state, debtId, input) {
   const debt = state.debts.find(item => item.id === debtId);
   if (!debt) throw new Error('Dívida não encontrada.');
+  if (debt.deletedAt !== undefined) throw new Error('Restaure a dívida antes de registrar pagamentos.');
   const payment = { id: crypto.randomUUID(), ...paymentFields(debt, input), createdAt: new Date().toISOString() };
   debt.payments.push(payment);
+  return payment;
+}
+
+export function updatePayment(state, debtId, paymentId, input) {
+  const debt = state.debts.find(item => item.id === debtId);
+  if (!debt) throw new Error('Dívida não encontrada.');
+  if (debt.deletedAt !== undefined) throw new Error('Restaure a dívida antes de editar pagamentos.');
+  const payment = debt.payments.find(item => item.id === paymentId);
+  if (!payment) throw new Error('Pagamento não encontrado.');
+  if (payment.deletedAt !== undefined) throw new Error('Restaure o pagamento antes de editar.');
+  const next = { ...payment, ...input }, others = { ...debt, payments: debt.payments.filter(item => item.id !== paymentId) };
+  const historical = payment.receivedCents === undefined && input.receivedCents === undefined;
+  if (historical && ['currency', 'fxRate', 'fxDate'].some(key => input[key] !== undefined)) {
+    throw new Error('Informe o valor recebido para identificar a moeda e o câmbio deste pagamento.');
+  }
+  if (!historical) {
+    if (input.amountCents !== undefined) throw new Error('Edite o valor recebido; o abatimento é calculado pelo câmbio.');
+    delete next.amountCents;
+  }
+  const moneyEdited = ['receivedCents', 'currency', 'fxRate', 'fxDate'].some(key => input[key] !== undefined);
+  const fields = paymentFields(others, next, historical || !moneyEdited);
+  Object.assign(payment, fields, { updatedAt: revisedAt(payment) });
+  return payment;
+}
+
+export function setPaymentDeleted(state, debtId, paymentId, deleted) {
+  const debt = state.debts.find(item => item.id === debtId);
+  if (!debt) throw new Error('Dívida não encontrada.');
+  if (debt.deletedAt !== undefined) throw new Error('Restaure a dívida antes de alterar pagamentos.');
+  const payment = debt.payments.find(item => item.id === paymentId);
+  if (!payment) throw new Error('Pagamento não encontrado.');
+  const next = setDeleted({ ...payment }, deleted, 'Pagamento');
+  validateDebtPayments({ ...debt, payments: debt.payments.map(item => item.id === paymentId ? next : item) });
+  if (!deleted) delete payment.deletedAt;
+  Object.assign(payment, next);
   return payment;
 }
 
@@ -267,14 +360,14 @@ export function validateState(state) {
   }
   for (const debt of state.debts) {
     identify(debt);
+    validateRevision(debt);
     debtFields(debt);
     if (!Array.isArray(debt.payments)) throw new Error('Histórico de pagamentos inválido.');
-    const replay = { ...debt, payments: [] };
     for (const payment of debt.payments) {
       identify(payment, true);
-      paymentFields(replay, payment, true);
-      replay.payments.push(payment);
+      validateRevision(payment);
     }
+    validateDebtPayments(debt);
   }
   if (state.shipments !== undefined && !Array.isArray(state.shipments)) throw new Error('Histórico de envios inválido.');
   (state.shipments || []).forEach(shipment => { identify(shipment, true); shipmentFields(shipment); });

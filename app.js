@@ -149,7 +149,7 @@ const headings = {
 function render() {
   if (invalid) { $('#content').innerHTML = empty('Conecte com sua chave para carregar os dados do painel.'); $('#new-entry').disabled = true; return; }
   const [title,description,button] = headings[view];
-  $('#page-title').textContent = title; $('#page-description').textContent = description;
+  $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
   $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable;
   $('#reconcile').hidden=!pendingOperation;
   const reference=state.settings||{};
@@ -159,20 +159,23 @@ function render() {
   $('#exchange-note').hidden=['envios','anotacoes'].includes(view);
   const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['envios','anotacoes'].includes(view)?view:'';
   document.querySelectorAll('[data-section]').forEach(b=>{b.classList.toggle('active',b.dataset.section===section);b.setAttribute('aria-current',b.dataset.section===section?'page':'false');});
-  const sectionViews=section==='estoque'?[['estoque','Todos os produtos'],['mercadorias','Mercadorias']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
-  $('#section-tabs').innerHTML=sectionViews.map(([name,label])=>`<button type="button" data-view="${name}">${label}</button>`).join('');
+  const sectionViews=section==='estoque'?[['estoque','Todos','',''],['estoque','Estoque principal','principal',''],['mercadorias','Mercadorias','mercadorias',''],['estoque','Depósito SP','','Depósito SP']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
+  $('#section-tabs').innerHTML=sectionViews.map(([name,label,stock,local])=>`<button type="button" data-view="${name}"${stock!==undefined?` data-stock="${stock}" data-location="${local}"`:''}>${label}</button>`).join('');
+  $('#section-tabs').classList.toggle('stock-tabs',section==='estoque');
   $('#section-tabs').hidden=!sectionViews.length;
   $('#shipment-month').closest('label').hidden=view!=='envios';$('#shipment-month').value=shipmentMonth;
   $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').closest('label').hidden = view === 'decisao';
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
-  $('#stock-filter').closest('label').hidden = view !== 'estoque';
   $('#category-filter').closest('label').hidden = !['estoque','mercadorias','vendas','receber','decisao'].includes(view);
   $('#filter-options').hidden=!['estoque','mercadorias','vendas','receber','decisao'].includes(view);
-  const selectedFilters=[view==='estoque'&&stockFilter,['estoque','mercadorias'].includes(view)&&locationFilter,categoryFilter].filter(Boolean).length;
-  $('#filter-options-title').textContent=selectedFilters?`Filtros (${selectedFilters})`:'Filtros';
+  const categoryLabel={'peptideos':'Peptídeos','ar-condicionados':'Ar-condicionados',mercadorias:'Mercadorias'}[categoryFilter];
+  $('#filter-options-title').textContent=categoryLabel?`Categoria: ${categoryLabel}`:'Categoria';
+  const activeFilters=section==='estoque'?[view==='mercadorias'||stockFilter==='mercadorias'?'Mercadorias':stockFilter==='principal'?'Estoque principal':'',locationFilter,categoryLabel,search?`Busca: ${search}`:''].filter(Boolean):['vendas','receber','decisao'].includes(view)?[categoryLabel].filter(Boolean):[];
+  $('#active-filters').hidden=!activeFilters.length;
+  $('#active-filters').innerHTML=activeFilters.map(label=>`<span class="chip">${esc(label)}</span>`).join('')+(activeFilters.length?'<button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>':'');
   $('#location-filter').innerHTML='<option value="">Todos os locais</option>'+locationOptions(locationFilter);$('#location-filter').value=locationFilter;
-  document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active',b.dataset.view === view); b.setAttribute('aria-current',b.dataset.view === view ? 'page' : 'false'); });
+  document.querySelectorAll('[data-view]').forEach(b => { const active=b.dataset.view===view&&(b.dataset.stock===undefined||b.dataset.stock===stockFilter&&b.dataset.location===locationFilter);b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false'); });
   if (view === 'mercadorias' || view === 'estoque') renderProducts();
   else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search}):empty('Atualize a conexão para consultar os envios.');}
   else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search}):empty('Conecte para carregar suas anotações.');}
@@ -186,7 +189,7 @@ function render() {
     $('#summary').innerHTML = '';
     $('#content').innerHTML = legacyView(filteredLegacy(),view,search)+extraView();
   }
-  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit'].includes(b.dataset.action))b.disabled=true;});
+  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit','filter-location','clear-filters'].includes(b.dataset.action))b.disabled=true;});
   setAlissonBalance(state.commission?.balanceCents || 0);
 }
 
@@ -197,26 +200,27 @@ function extraView(){
     const sales=state.movements.filter(m=>m.type==='saida'&&ids.has(m.productId)&&matches(m.client,m.notes,state.products.find(p=>p.id===m.productId)?.name)).slice().reverse();
     return sales.length?`<h2 class="section-title">Saídas de mercadorias</h2><div class="debt-list">${sales.map(m=>`<article class="debt-card"><h3>${esc(state.products.find(p=>p.id===m.productId)?.name)}</h3><div class="client-location"><span class="context-chip">Cliente <strong>${esc(m.client)}</strong></span><span class="context-chip">Local <strong>${esc(m.location)}</strong></span></div><p>${m.quantity} un. · ${moneyHTML(m.quantity*m.unitPriceCents,m,state.settings)} · ${dateBR(m.date)}</p>${!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda','secondary'):''}</article>`).join('')}</div>`:'';
   }
-  if(view==='receber')return `<div class="module-note"><strong>Caderneta de devedores</strong>${moneyTotals(state.debts,debtBalance)}<p>Pagamentos parciais e dívidas avulsas ficam na aba Devedores. Os totais de reais e dólares são separados.</p><button type="button" data-action="open-debts" class="secondary">Ver devedores</button></div>`;
+  if(view==='receber')return `<div class="module-note"><strong>Caderneta de devedores</strong>${moneyTotals(state.debts.filter(d=>!d.deletedAt),debtBalance)}<p>Pagamentos parciais e dívidas avulsas ficam na aba Devedores. Os totais de reais e dólares são separados.</p><button type="button" data-action="open-debts" class="secondary">Ver devedores</button></div>`;
   if(view==='clientes'){
     const clients=[...new Set(state.movements.filter(m=>m.type==='saida').map(m=>m.client))].filter(name=>matches(name));
     return clients.length?`<h2 class="section-title">Clientes das mercadorias</h2><div class="product-grid">${clients.map(name=>{const movements=state.movements.filter(m=>m.type==='saida'&&m.client===name);return `<article class="product-card stock-mercadorias"><h3>${esc(name)}</h3><strong>${moneyTotals(movements,m=>m.quantity*m.unitPriceCents)}</strong><p>${movements.reduce((n,m)=>n+m.quantity,0)} unidades · ${esc([...new Set(movements.map(m=>m.location))].join(', '))}</p></article>`;}).join('')}</div>`:'';
   }
-  if(view==='locais')return `<h2 class="section-title">Mercadorias por local</h2><div class="product-grid">${locations().map(loc=>`<article class="product-card stock-mercadorias"><h3>${esc(loc)}</h3><strong>${state.products.reduce((n,p)=>n+balance(state,p.id,loc),0)} unidades</strong></article>`).join('')}</div>`;
+  if(view==='locais')return `<h2 class="section-title">Mercadorias por local</h2><div class="product-grid">${locations().filter(loc=>matches(loc)).map(loc=>`<article class="product-card stock-mercadorias"><h3>${esc(loc)}</h3><strong>${state.products.reduce((n,p)=>n+balance(state,p.id,loc),0)} unidades</strong><div class="card-actions"><button type="button" class="secondary" data-action="filter-location" data-location="${esc(loc)}">Ver produtos deste local</button></div></article>`).join('')}</div>`;
   return '';
 }
 
 function renderProducts() {
+  const selectedStock = view === 'mercadorias' ? 'mercadorias' : stockFilter;
   const products = state.products.filter(p => {
-    const selectedStock = view === 'mercadorias' ? 'mercadorias' : stockFilter;
     const clients = state.movements.filter(m=>m.productId===p.id).map(m=>m.client).join(' ');
     return (!selectedStock || (p.stock || 'mercadorias') === selectedStock) && (!categoryFilter||classifyCategory(p)===categoryFilter) && matches(p.name,p.category,p.notes,clients) && (!locationFilter||balance(state,p.id,locationFilter)>0);
   }).sort((a,b)=>Number(b.stock==='principal')-Number(a.stock==='principal'));
   const loc = locationFilter || undefined;
   const mainItems=view==='estoque'&&stockFilter!=='mercadorias'?filteredLegacy().itens.filter(p=>normalize(p.situacao)!=='vendido'&&(!locationFilter||p.local===locationFilter)&&matches(p.modelo,p.cliente,p.notes,p.local)):[];
   const quantity = products.reduce((n,p) => n + balance(state,p.id,loc),mainItems.length);
-  const low = products.filter(p => balance(state,p.id,loc) <= p.minStock).length;
-  $('#summary').innerHTML = `<div class="summary-strip">${stat('Produtos / aparelhos',products.length+mainItems.length)}${stat(locationFilter ? `Unidades · ${esc(locationFilter)}` : 'Unidades em estoque',quantity)}${stat('Estoque baixo',low,low ? 'warning' : '')}</div>`;
+  $('#summary').innerHTML = `<div class="summary-strip">${stat('Aparelhos',mainItems.length)}${stat('Produtos no catálogo',products.length)}${stat(locationFilter ? `Unidades · ${esc(locationFilter)}` : 'Unidades em estoque',quantity)}</div>`;
+  const noCatalog=selectedStock!=='principal'&&!state.products.length;
+  const catalogEmpty=modulesLoaded?`<div class="empty stock-empty"><strong>Catálogo de mercadorias vazio</strong><p>Cadastre o produto e depois use Entrada para informar a quantidade e o local, como Depósito SP.</p><div class="card-actions"><button type="button" class="primary" data-action="new-catalog">+ Cadastrar mercadoria</button>${state.shipments?.length?'<button type="button" class="secondary" data-view="envios">Conferir listas em Envios</button>':''}</div><p class="help">Envios guarda suas listas; não altera o saldo do estoque.</p></div>`:empty('Atualize a conexão para consultar o catálogo de mercadorias.');
   $('#content').innerHTML = products.length ? `<div class="product-grid">${products.map(p => {
     const qty = balance(state,p.id,loc), isLow = qty <= p.minStock;
     const lastSale = state.movements.filter(m=>m.productId===p.id&&m.type==='saida').at(-1);
@@ -226,24 +230,26 @@ function renderProducts() {
       <div class="client-location"><div class="context-chip"><span class="context-label">Local · unidades</span><strong>${esc(places || 'Sem saldo nos locais')}</strong></div><div class="context-chip"><span class="context-label">Último cliente</span><strong>${esc(lastSale?.client || 'Ainda sem saída')}</strong></div></div>
       <details class="card-details"><summary>Detalhes e custos</summary>${p.costCents!=null?`<div class="card-values"><div><span class="meta">Custo por unidade</span><strong>${moneyHTML(p.costCents,p,state.settings,'costCurrency')}</strong></div></div>`:''}<p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('details-product',p.id,'Histórico','ghost')}</div></details>
       <div class="card-actions">${action('entrada',p.id,'↓ Entrada')}${action('saida',p.id,'↑ Saída','primary')}</div></article>`;
-  }).join('')}</div>` : empty('Nenhum produto encontrado. Tente outro termo ou cadastre uma mercadoria.');
-  if(mainItems.length)$('#content').innerHTML=legacyCards({...legacy,itens:mainItems})+(products.length?`<h2 class="section-title">Catálogo de mercadorias</h2>`+$('#content').innerHTML:'');
+  }).join('')}</div>` : noCatalog?catalogEmpty:`<div class="empty stock-empty"><strong>${locationFilter?`Nenhum produto com saldo em ${esc(locationFilter)}.`:'Nenhum produto encontrado.'}</strong><p>Confira o local, a categoria e a busca. Para adicionar quantidades, abra a mercadoria e use Entrada.</p><button type="button" class="secondary" data-view="estoque" data-stock="" data-location="">Mostrar todos os produtos</button></div>`;
+  if(mainItems.length)$('#content').innerHTML=legacyCards({...legacy,itens:mainItems})+(products.length?`<h2 class="section-title">Catálogo de mercadorias</h2>`+$('#content').innerHTML:noCatalog?catalogEmpty:'');
 }
 
 function renderDebts() {
-  const debts = state.debts.filter(d => matches(d.name,d.description,d.notes));
+  const debts = state.debts.filter(d => !d.deletedAt && matches(d.name,d.description,d.notes));
   $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Anotações em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
-    const remaining = debtBalance(d), paid = d.totalCents-remaining;
+    const remaining = debtBalance(d), paid = d.totalCents-remaining, payments = d.payments.filter(p=>!p.deletedAt);
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
     const paidRatio=Math.max(0,Math.min(1,paid/d.totalCents)), hue=paidRatio<=.5?paidRatio*80:40+(paidRatio-.5)*220;
     return `<article class="debt-card debt-progress-color ${remaining?'debt-open':'debt-settled'}" style="--debt-hue:${Math.round(hue)}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
       <div class="debt-amount"><span class="meta">Falta receber</span><strong>${moneyHTML(remaining,d,state.settings)}</strong></div>
       <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid,d.currency))} de ${esc(money(d.totalCents,d.currency))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
       <div class="payment-row"><span class="meta">Abatido <b>${money(paid,d.currency)}</b></span><span class="meta">Total ${money(d.totalCents,d.currency)}</span></div>
-      <p class="notes">${d.payments.length ? `Último abatimento: ${money(d.payments[d.payments.length-1].amountCents,d.currency)} em ${dateBR(d.payments[d.payments.length-1].date)}` : `Anotado em ${dateBR(d.date)}`}${d.dueDate ? ` · Vence ${dateBR(d.dueDate)}` : ''}</p>
-      <div class="card-actions">${action('debt-currency',d.id,currencyOf(d)?'✎ Moeda / câmbio':'✎ Confirmar moeda','secondary')}${remaining ? action('payment',d.id,'+ Registrar pagamento parcial','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Ver histórico','secondary')}</div></article>`;
+      <p class="notes">${payments.length ? `Último abatimento: ${money(payments.at(-1).amountCents,d.currency)} em ${dateBR(payments.at(-1).date)}` : `Anotado em ${dateBR(d.date)}`}${d.dueDate ? ` · Vence ${dateBR(d.dueDate)}` : ''}</p>
+      <div class="card-actions">${action('debt-edit',d.id,'✎ Editar dívida','secondary')}${remaining ? action('payment',d.id,'+ Registrar pagamento parcial','primary') : '<span class="paid-label">✓ Tudo recebido</span>'}${action('details-debt',d.id,'Histórico / pagamentos','secondary')}${action('debt-delete',d.id,'🗑 Excluir','ghost')}</div></article>`;
   }).join('')}</div>` : empty('Nenhuma dívida encontrada. Anote o nome, o motivo e o valor para começar.');
+  const deleted=state.debts.filter(d=>d.deletedAt&&matches(d.name,d.description,d.notes));
+  $('#content').innerHTML+=`<details class="notes-trash"><summary>🗑 Dívidas excluídas · ${deleted.length}</summary><p class="help">Fora dos totais. Restaure para voltar a acompanhar a dívida e seus pagamentos.</p><div class="debt-list">${deleted.map(d=>`<article class="debt-card"><h2>${esc(d.name)}</h2><p>${esc(d.description)}</p><p>Saldo: ${money(debtBalance(d),d.currency)}</p><div class="card-actions">${action('debt-restore',d.id,'↩ Restaurar dívida')}${action('details-debt',d.id,'Ver histórico','ghost')}</div></article>`).join('')||'<p class="help">Nenhuma dívida excluída para esta busca.</p>'}</div></details>`;
 }
 
 function field(label,name,type='text',value='',extra='') {
@@ -274,34 +280,52 @@ function productForm(id, sourceNote) {
       photo=await readPhoto(data.get('photo'),photo);
       const input={name:data.get('name'),stock:'mercadorias',category:data.get('category'),priceCents:cents(data.get('price')),costCents:String(data.get('cost')).trim()?cents(data.get('cost')):null,...readCurrencyForm(data,{cost:true}),minStock:Number(data.get('minStock')),notes:data.get('notes'),photo};
       await save('puffProduto',{input,...noteSource(sourceNote),...(product?{productId:product.id,expected:product}:{})});
-      toast(product?'Produto atualizado.':'Produto cadastrado. Registre a primeira entrada.');
+      if(!product){view='mercadorias';stockFilter='mercadorias';locationFilter='';categoryFilter='';search='';$('#search').value='';$('#category-filter').value='';render();}
+      toast(product?'Produto atualizado.':'Produto cadastrado. Use Entrada para informar quantidade e local.');
     });
   if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;if(draft.items.length===1)$('#f-name').value=draft.items[0].name;$('#f-notes').value=draft.notes;$('#mf-currency').value='';$('#mf-costCurrency').value='';attachNote(sourceNote,'Confira nome, moeda e preço. O produto será cadastrado; a quantidade entra depois em Entrada.');}
 }
 
-function debtForm(sourceNote) {
-  openDialog('Nova anotação de dívida',field('Quem deve?','name','text','','required maxlength="120" placeholder="Nome da pessoa"')+
-    field('Sobre o que deve?','description','text','','required maxlength="200" placeholder="Ex.: iPhone, serviço, empréstimo…"')+
-    field('Quantidade de itens neste combinado','units','number',1,'required min="1" max="1000000" step="1"')+
-    currencyForm({currency:'BRL',...state.settings},{reference:state.settings})+
-    `<div class="form-grid">${field('Valor total na moeda escolhida','total','text','','required inputmode="decimal" placeholder="2.000,00 → digite 2000,00"')}${field('Data da anotação','date','date',today(),'required')}</div>`+
-    field('Vencimento (opcional)','dueDate','date')+notes(), 'Salvar dívida', async data=>{
-      await save('puffDivida',{...noteSource(sourceNote),input:{name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')}});toast('Dívida anotada.');
+function debtForm(sourceNote,id) {
+  const debt=id?state.debts.find(d=>d.id===id):null;
+  if(id&&!debt)return;
+  if(debt?.deletedAt)throw new Error('Restaure a dívida antes de editar.');
+  const paid=debt?debt.totalCents-debtBalance(debt):0;
+  openDialog(debt?'Editar dívida':'Nova anotação de dívida',field('Quem deve?','name','text',debt?.name||'','required maxlength="120" placeholder="Nome da pessoa"')+
+    field('Sobre o que deve?','description','text',debt?.description||'','required maxlength="1000" placeholder="Ex.: iPhone, serviço, empréstimo…"')+
+    field('Quantidade de itens neste combinado','units','number',debt?.units||1,'required min="1" max="1000000" step="1"')+
+    currencyForm(debt||{currency:'BRL',...state.settings},{reference:state.settings})+
+    (debt?.payments.length?'<p class="help">Há pagamentos no histórico: uma moeda já confirmada fica preservada. Corrija os pagamentos pelo histórico.</p>':'')+
+    `<div class="form-grid">${field('Valor original da dívida','total','text',debt?(debt.totalCents/100).toFixed(2):'','required inputmode="decimal" placeholder="Ex.: 2000,00"')}${field('Data da anotação','date','date',debt?.date||today(),'required')}</div>`+
+    (debt?`<p class="help">Já abatido: ${money(paid,debt.currency)}. O saldo será recalculado a partir do valor original e dos pagamentos.</p>`:'')+
+    field('Vencimento (opcional)','dueDate','date',debt?.dueDate||'')+notes(debt?.notes), 'Salvar dívida', async data=>{
+      const input={name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')};
+      if(input.totalCents<paid)throw new Error('O valor original não pode ser menor que o total já abatido. Confira os pagamentos no histórico.');
+      await save(debt?'puffDividaEdit':'puffDivida',{...(debt?{debtId:debt.id,expected:debt}:noteSource(sourceNote)),input});toast(debt?'Dívida atualizada.':'Dívida anotada.');
     });
   if(sourceNote){const draft=noteToDebt(sourceNote,today());for(const name of ['name','description','total','date','notes'])$('#f-'+name).value=draft.input[name]||'';$('#f-units').value=draft.input.units||1;$('#mf-currency').value=draft.input.currency||'';attachNote(sourceNote,'Confira pessoa, valor e moeda antes de registrar o valor a receber.',draft.warnings);}
 }
-function paymentForm(id) {
+function paymentForm(id,paymentId) {
   const debt = state.debts.find(d=>d.id===id); if (!debt) return;
+  if(debt.deletedAt)throw new Error('Restaure a dívida antes de alterar pagamentos.');
+  const payment=paymentId?debt.payments.find(p=>p.id===paymentId):null;
+  if(paymentId&&!payment)return;
+  if(payment?.deletedAt)throw new Error('Restaure o pagamento antes de editar.');
+  if(payment&&payment.receivedCents===undefined){
+    openDialog(`Editar pagamento · ${debt.name}`,`<p class="help">Este registro antigo informa apenas o abatimento. A moeda recebida e o câmbio continuam sem identificação.</p>`+field(`Abatimento registrado · ${currencyOf(debt)||'moeda a confirmar'}`,'amount','text',(payment.amountCents/100).toFixed(2),'required inputmode="decimal"')+field('Data do pagamento','date','date',payment.date,`required min="${esc(debt.date)}"`)+notes(payment.note),'Salvar pagamento',async data=>{
+      await save('puffPagamentoEdit',{debtId:id,paymentId,expected:debt,input:{amountCents:cents(data.get('amount')),date:data.get('date'),note:data.get('notes')}});toast('Pagamento corrigido e saldo recalculado.');
+    });return;
+  }
   if(!currencyOf(debt)){debtCurrencyForm(id);return;}
-  const remaining = debtBalance(debt);
-  openDialog(`Pagamento de ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>Saldo atual <strong>${money(remaining,debt.currency)}</strong></p><p class="help">Receba uma parte ou o total. Para receber em outra moeda, informe o câmbio deste pagamento.</p>`+
-    currencyForm({currency:debt.currency,...state.settings},{reference:state.settings})+
-    `<div class="form-grid">${field('Valor recebido agora','amount','text','','required inputmode="decimal" placeholder="Ex.: 500,00" aria-describedby="payment-remaining"')}${field('Data do pagamento','date','date',today(),`required min="${esc(debt.date)}"`)}</div><p id="payment-remaining" class="payment-preview" role="status"></p>`+notes(), 'Registrar pagamento',async data=>{
+  const remaining = debtBalance(debt)+(payment?.amountCents||0);
+  openDialog(`${payment?'Editar pagamento':'Pagamento'} · ${debt.name}`,`<p class="dialog-summary">${esc(debt.description)}<br>${payment?'Saldo sem este pagamento':'Saldo atual'} <strong>${money(remaining,debt.currency)}</strong></p><p class="help">${payment?'Corrija o valor recebido ou a data. O saldo será recalculado.':'Receba uma parte ou o total.'} Para receber em outra moeda, informe o câmbio deste pagamento.</p>`+
+    currencyForm(payment||{currency:debt.currency,...state.settings},{reference:state.settings})+
+    `<div class="form-grid">${field(payment?'Valor recebido neste pagamento':'Valor recebido agora','amount','text',payment?(payment.receivedCents/100).toFixed(2):'','required inputmode="decimal" placeholder="Ex.: 500,00" aria-describedby="payment-remaining"')}${field('Data do pagamento','date','date',payment?.date||today(),`required min="${esc(debt.date)}"`)}</div><p id="payment-remaining" class="payment-preview" role="status"></p>`+notes(payment?.note), payment?'Salvar pagamento':'Registrar pagamento',async data=>{
       const currency=readCurrencyForm(data),receivedCents=cents(data.get('amount'));
       const applied=convertCents(receivedCents,currency.currency,debt.currency,currency.fxRate);
       if(applied==null)throw new Error('Informe o câmbio para receber em outra moeda.');
       if(applied<=0||applied>remaining)throw new Error(`O abatimento precisa ser maior que zero e até ${money(remaining,debt.currency)}.`);
-      await save('puffPagamento',{debtId:id,input:{receivedCents,...currency,date:data.get('date'),note:data.get('notes')}},'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
+      await save(payment?'puffPagamentoEdit':'puffPagamento',{debtId:id,expected:debt,...(payment?{paymentId}:{}),input:{receivedCents,...currency,date:data.get('date'),note:data.get('notes')}},payment?'':'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
     });
   const preview = $('#payment-remaining');
   const updateRemaining = () => {
@@ -351,6 +375,7 @@ function exchangeForm() {
 }
 function debtCurrencyForm(id) {
   const debt=state.debts.find(d=>d.id===id);if(!debt)return;
+  if(debt.deletedAt)throw new Error('Restaure a dívida antes de editar.');
   openDialog(`Moeda · ${debt.name}`,`<p class="dialog-summary">Valor original: <strong>${money(debt.totalCents,debt.currency)}</strong><br>Falta receber: <strong>${money(debtBalance(debt),debt.currency)}</strong></p>`+currencyForm(debt,{reference:state.settings})+'<p class="help">Confirma a moeda dos números existentes, sem converter os valores. Depois de receber pagamentos, uma moeda já confirmada fica preservada.</p>','Salvar moeda e câmbio',async data=>{
     await save('puffDividaEdit',{debtId:id,expected:debt,input:readCurrencyForm(data)});toast('Moeda da dívida atualizada.');
   });
@@ -366,7 +391,23 @@ function productDetails(id) {
 }
 function debtDetails(id) {
   const d=state.debts.find(d=>d.id===id);if(!d)return;
-  openDialog(`Histórico · ${d.name}`,`<p class="dialog-summary">${esc(d.description)}<br>Valor original <strong>${money(d.totalCents,d.currency)}</strong><br>Falta receber <strong>${money(debtBalance(d),d.currency)}</strong></p>${d.notes?`<p class="notes">${esc(d.notes)}</p>`:''}<h3>Pagamentos registrados</h3><div class="payments">${d.payments.slice().reverse().map(p=>`<div class="payment-row"><div><strong>${dateBR(p.date)}</strong>${p.note?`<p class="meta">${esc(p.note)}</p>`:''}<p class="meta">${p.receivedCents!=null?`Recebido: ${money(p.receivedCents,p.currency)}${p.fxRate?` · US$ 1 = R$ ${esc(p.fxRate)} · ${dateBR(p.fxDate)}`:''}`:'Registro anterior à identificação de moedas.'}</p></div><strong class="success">Abatido ${money(p.amountCents,d.currency)}</strong></div>`).join('') || empty('Ainda não houve pagamento. Cada recebimento ficará registrado aqui com a data.')}</div><p class="help">Dívida anotada em ${dateBR(d.date)}${d.dueDate?` · vencimento ${dateBR(d.dueDate)}`:''}.</p>`,null,null);
+  const payments=deleted=>d.payments.filter(p=>Boolean(p.deletedAt)===deleted).slice().reverse().map(p=>`<div class="payment-row"><div><strong>${dateBR(p.date)}</strong>${p.note?`<p class="meta">${esc(p.note)}</p>`:''}<p class="meta">${p.receivedCents!=null?`Recebido: ${money(p.receivedCents,p.currency)}${p.fxRate?` · US$ 1 = R$ ${esc(p.fxRate)} · ${dateBR(p.fxDate)}`:''}`:'Registro anterior à identificação da moeda recebida.'}</p><strong class="${deleted?'meta':'success'}">${deleted?'Abatimento excluído':'Abatido'} ${money(p.amountCents,d.currency)}</strong>${!d.deletedAt?`<div class="card-actions">${deleted?`<button type="button" class="secondary" data-action="payment-restore" data-id="${esc(id)}" data-payment-id="${esc(p.id)}">↩ Restaurar pagamento</button>`:`<button type="button" class="secondary" data-action="payment-edit" data-id="${esc(id)}" data-payment-id="${esc(p.id)}">✎ Editar pagamento</button><button type="button" class="ghost" data-action="payment-delete" data-id="${esc(id)}" data-payment-id="${esc(p.id)}">🗑 Excluir pagamento</button>`}</div>`:''}</div></div>`).join('');
+  openDialog(`Histórico · ${d.name}`,`${d.deletedAt?'<p class="help">Dívida excluída, fora dos totais. Restaure para fazer alterações.</p>':''}<p class="dialog-summary">${esc(d.description)}<br>Valor original <strong>${money(d.totalCents,d.currency)}</strong><br>Falta receber <strong>${money(debtBalance(d),d.currency)}</strong></p>${d.notes?`<p class="notes">${esc(d.notes)}</p>`:''}<h3>Pagamentos registrados</h3><div class="payments">${payments(false)||empty('Nenhum pagamento ativo. Registre os recebimentos para abater o saldo.')}</div><details class="notes-trash"><summary>Pagamentos excluídos · ${d.payments.filter(p=>p.deletedAt).length}</summary><div class="payments">${payments(true)||'<p class="help">Nenhum pagamento excluído.</p>'}</div></details><p class="help">Dívida anotada em ${dateBR(d.date)}${d.dueDate?` · vencimento ${dateBR(d.dueDate)}`:''}.</p>`,null,null);
+}
+
+function debtTrash(id,restore=false,paymentId) {
+  const debt=state.debts.find(d=>d.id===id);if(!debt)return;
+  const payment=paymentId?debt.payments.find(p=>p.id===paymentId):null;
+  if(paymentId&&!payment)return;
+  if(payment&&debt.deletedAt)throw new Error('Restaure a dívida antes de alterar pagamentos.');
+  const target=payment||debt;
+  if(Boolean(target.deletedAt)!==restore)throw new Error('Este registro mudou. Atualize o painel.');
+  const kind=payment?'pagamento':'dívida', verb=restore?'Restaurar':'Excluir';
+  const explanation=payment?(restore?'O pagamento volta a abater a dívida, se ainda houver saldo suficiente.':'O abatimento será desfeito e o saldo a receber aumentará. Você pode restaurar este pagamento no histórico.'):(restore?'A dívida e seus pagamentos ativos voltam aos totais da caderneta.':'A dívida e seus pagamentos saem dos totais da caderneta. Você pode restaurá-la em Dívidas excluídas. Vendas, estoque e envios permanecem como estão.');
+  openDialog(`${verb} ${kind}?`,`<p class="dialog-summary">${esc(debt.name)} · ${money(payment?.amountCents??debt.totalCents,debt.currency)}</p><p>${explanation}</p>`,`${verb} ${kind}`,async()=>{
+    await save(`puff${payment?'Pagamento':'Divida'}${restore?'Restaurar':'Excluir'}`,{debtId:id,expected:debt,...(payment?{paymentId}:{}),input:{}});
+    view='devedores';search='';$('#search').value='';render();toast(restore?'Registro restaurado.':'Registro excluído. Você pode restaurá-lo pelo histórico.');
+  });
 }
 
 function noteSource(note) { return note ? {sourceNoteId:note.id,expectedNote:note} : {}; }
@@ -443,7 +484,6 @@ $('#search').addEventListener('input',e=>{search=e.target.value;render();});
 $('#shipment-month').addEventListener('change',e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)){shipmentMonth=e.target.value;render();}});
 $('#exchange-rate').addEventListener('click',exchangeForm);
 $('#location-filter').addEventListener('change',e=>{locationFilter=e.target.value;render();});
-$('#stock-filter').addEventListener('change',e=>{stockFilter=e.target.value;render();});
 $('#category-filter').addEventListener('change',e=>{categoryFilter=e.target.value;render();});
 function originalForm(kind,id){
   const form=legacyForm(legacy,kind,id,today());
@@ -463,7 +503,7 @@ $('#new-entry').addEventListener('click',()=>{
 });
 document.addEventListener('click',e=>{
   const nav=e.target.closest('[data-view],[data-section]');
-  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();if(nav.dataset.section==='anotacoes'&&modulesLoaded)noteEditor();return;}
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();if(nav.dataset.section==='anotacoes'&&modulesLoaded)noteEditor();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
@@ -484,7 +524,7 @@ document.addEventListener('click',e=>{
     else if(a==='note-to-entry'||a==='note-to-exit'){const productId=$('#note-product').value;if(!productId)throw new Error('Escolha o produto para continuar.');movementForm(productId,a==='note-to-entry'?'entrada':'saida',note);}
     return;
   }
-  if(a==='clear-filters'){stockFilter='';locationFilter='';categoryFilter='';$('#stock-filter').value='';$('#category-filter').value='';render();return;}
+  if(a==='clear-filters'){stockFilter='';locationFilter='';categoryFilter='';search='';if(view==='mercadorias')view='estoque';$('#search').value='';$('#category-filter').value='';render();return;}
   if(a==='use-fx'){
     for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
   }
@@ -501,10 +541,14 @@ document.addEventListener('click',e=>{
     const title=kind==='paid'?(request.payload.valor?'Registrar recebimento':'Voltar para a receber'):kind==='delete'?'Arquivar aparelho':kind==='restore'?'Restaurar aparelho':'Excluir gasto';
     openDialog(title,kind==='delete'?'<p>O aparelho ficará em Arquivados e poderá ser restaurado.</p>':kind==='restore'?'<p>O aparelho voltará ao estoque, com os dados que tinha ao ser arquivado.</p>':kind==='expense-delete'?'<p>Este gasto será excluído da planilha. Exporte um backup se quiser guardar uma cópia.</p>':'<p>Confirme a atualização do pagamento deste aparelho.</p>','Confirmar',async()=>save(request.action,request.payload,kind==='paid'&&request.payload.valor?'Pagamento recebido':''));return;
   }
-  if(a==='filter-location'){locationFilter=location;$('#location-filter').value=location;render();return;}
+  if(a==='filter-location'){view='estoque';stockFilter='';categoryFilter='';search='';locationFilter=location;$('#search').value='';$('#category-filter').value='';$('#location-filter').value=location;render();return;}
   if(['entrada','saida','transferencia'].includes(a)){$('#editor').close();movementForm(id,a);}
   else if(a==='edit-product')productForm(id);
   else if(a==='details-product')productDetails(id);
+  else if(a==='debt-edit')debtForm(undefined,id);
+  else if(a==='debt-delete'||a==='debt-restore')debtTrash(id,a==='debt-restore');
+  else if(a==='payment-edit')paymentForm(id,b.dataset.paymentId);
+  else if(a==='payment-delete'||a==='payment-restore')debtTrash(id,a==='payment-restore',b.dataset.paymentId);
   else if(a==='payment')paymentForm(id);
   else if(a==='details-debt')debtDetails(id);
   else if(a==='debt-currency')debtCurrencyForm(id);
