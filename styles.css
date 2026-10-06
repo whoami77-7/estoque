@@ -391,11 +391,10 @@ dialog::backdrop { background: #030815ba; }
 .nav-more > summary { min-height: 44px; padding: 10px 16px; border-radius: 10px; color: var(--dim); cursor: pointer; }
 .nav-more[open] { flex-basis: 100%; margin-left: 0; }
 .more-options { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
-.section-tabs { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 12px; }
-.section-tabs button { background: transparent; color: var(--dim); font-size: 13px; padding: 8px 12px; }
-.section-tabs .active { background: var(--card2); color: var(--txt); border-color: var(--line); }
-.section-tabs.stock-tabs { gap: 8px; }
-.section-tabs.stock-tabs button { min-height: 44px; color: #d7e5ff; border-color: #405475; background: #162139; font-weight: 650; }
+.section-tabs { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.section-tabs button { background: var(--card2); color: var(--txt); border-color: #61789d; font-size: 15px; font-weight: 700; padding: 11px 18px; }
+.section-tabs .active { background: #c3d8fb; color: #101a2c; border-color: #c3d8fb; }
+.section-tabs.stock-tabs button { color: #d7e5ff; border-color: #405475; background: #162139; }
 .section-tabs.stock-tabs button[data-stock="mercadorias"] { color: #ead7ff; border-color: #705989; background: #2b213c; }
 .section-tabs.stock-tabs button[data-location="Depósito SP"] { color: #bfeee6; border-color: #39786f; background: #162e2e; }
 .section-tabs.stock-tabs button.active { color: #101a2c; background: #c3d8fb; border-color: #c3d8fb; }
@@ -501,9 +500,8 @@ dialog::backdrop { background: #030815ba; }
   .main-tabs .nav-more { grid-column: span 3; min-width: 0; }
   .main-tabs .nav-more > summary { justify-content: center; }
   .main-tabs .nav-more[open] { grid-column: 1 / -1; }
-  .section-tabs { gap: 0; }
-  .section-tabs button { flex: 1; padding-inline: 8px; font-size: 12px; }
-  .section-tabs.stock-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+  .section-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .section-tabs button { min-width: 0; padding-inline: 8px; }
   .filter-bar > .location-field { flex-direction: row; flex: 1 1 60%; align-items: center; }
   .filter-bar > .location-field select { min-width: 0; flex: 1; }
   .debt-card > .card-actions button { flex: 1 1 140px; }
