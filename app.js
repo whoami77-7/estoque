@@ -148,10 +148,10 @@ const headings = {
 };
 
 function render() {
-  if (invalid) { $('#content').innerHTML = empty('Conecte com sua chave para carregar os dados do painel.'); $('#new-entry').disabled = true; return; }
+  if (invalid && view !== 'anotacoes') { $('#content').innerHTML = empty('Conecte com sua chave para carregar os dados do painel.'); $('#new-entry').disabled = true; return; }
   const [title,description,button] = headings[view];
   $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
-  $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable;
+  $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable && view !== 'anotacoes';
   $('#reconcile').hidden=!pendingOperation;
   const reference=state.settings||{};
   $('#exchange-rate').textContent=reference.fxRate?`R$ ⇄ US$ · ${String(reference.fxRate).replace('.',',')}`:'R$ ⇄ US$ · Câmbio';
