@@ -459,6 +459,11 @@ dialog::backdrop { background: #030815ba; }
 .main-tabs .notes-shortcut:hover { color: #fff0cf; background: #4b3b21; }
 .main-tabs .notes-shortcut.active { background: #f0cc82; color: #282011; border-color: #f0cc82; }
 .note-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.notes-module .notes-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 12px; margin-bottom: 12px; }
+.notes-toolbar .month-field { display: grid; gap: 6px; min-width: 0; max-width: 320px; }
+.notes-toolbar select { min-width: 0; }
+.notes-month-group { margin-top: 24px; }
+.notes-month-group > h3 { margin: 0 0 12px; font-size: 17px; }
 .note-card { padding: 14px 16px; }
 .note-card .card-actions { margin-top: 0; padding-top: 6px; }
 .note-card .shipment-summary { min-height: 55px; }
@@ -502,6 +507,8 @@ dialog::backdrop { background: #030815ba; }
   .main-tabs .nav-more[open] { grid-column: 1 / -1; }
   .section-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
   .section-tabs button { min-width: 0; padding-inline: 8px; }
+  .notes-toolbar > button { padding-inline: 10px; font-size: 14px; }
+  .note-card > .card-actions .primary { flex-basis: 100%; font-size: 14px; }
   .filter-bar > .location-field { flex-direction: row; flex: 1 1 60%; align-items: center; }
   .filter-bar > .location-field select { min-width: 0; flex: 1; }
   .debt-card > .card-actions button { flex: 1 1 140px; }

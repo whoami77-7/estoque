@@ -5,7 +5,7 @@ import { setupFeedback, unlockSound, reward, setAlissonBalance } from './feedbac
 import { currencyOf, formatMoney, convertCents } from './money.mjs';
 import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm } from './currency-ui.mjs';
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
-import { notesView, noteForm, noteToShipment, noteToDebt } from './notes.mjs';
+import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -23,6 +23,7 @@ try{pendingOperation=JSON.parse(localStorage.getItem(PENDING_KEY));}catch{}
 let modulesLoaded=false;
 let decisionCurrency=localStorage.getItem('puff:decision-currency')==='USD'?'USD':'BRL';
 let shipmentMonth=today().slice(0,7);
+let notesMonth=today().slice(0,7);
 try{const cache=JSON.parse(localStorage.getItem(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
 const locations = () => [...new Set([...LOCATIONS,...(legacy.locais || []),...state.movements.flatMap(m=>[m.location,m.toLocation])].filter(Boolean))];
 const status = text => { $('#connection-status').textContent = text; };
@@ -142,7 +143,7 @@ const headings = {
   locais:['Locais','Confira onde estão os seus produtos.','+ Novo local'],
   decisao:['Tomada de decisão','Números que ajudam a escolher o próximo passo.',''],
   envios:['Envios','O que saiu, com quem foi e para quem. Cada mês fica guardado.',''],
-  anotacoes:['Anotações','Escreva agora. Organize quando quiser.','+ Anotar'],
+  anotacoes:['Anotações','Seu caderno por mês. Salve e continue quando quiser.','+ Anotação livre'],
   arquivados:['Arquivados','Itens guardados para consulta ou restauração.','']
 };
 
@@ -178,7 +179,7 @@ function render() {
   document.querySelectorAll('[data-view]').forEach(b => { const active=b.dataset.view===view&&(b.dataset.stock===undefined||b.dataset.stock===stockFilter&&b.dataset.location===locationFilter);b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false'); });
   if (view === 'mercadorias' || view === 'estoque') renderProducts();
   else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search}):empty('Atualize a conexão para consultar os envios.');}
-  else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search}):empty('Conecte para carregar suas anotações.');}
+  else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search,month:notesMonth}):empty('Conecte para carregar suas anotações.');}
   else if (view === 'devedores') {if(modulesLoaded)renderDebts();else{$('#summary').innerHTML='';$('#content').innerHTML=empty('A caderneta ainda não foi carregada. Atualize a conexão para consultar o saldo.');}}
   else if (view === 'decisao') {
     $('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?decisionView(legacy,state,{today:today(),category:categoryFilter,currency:decisionCurrency,reference}):empty('Atualize a conexão para carregar todos os módulos antes de analisar o painel.');
@@ -189,7 +190,7 @@ function render() {
     $('#summary').innerHTML = '';
     $('#content').innerHTML = legacyView(filteredLegacy(),view,search)+extraView();
   }
-  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit','filter-location','clear-filters'].includes(b.dataset.action))b.disabled=true;});
+  if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit','note-template','filter-location','clear-filters'].includes(b.dataset.action))b.disabled=true;});
   setAlissonBalance(state.commission?.balanceCents || 0);
 }
 
@@ -257,6 +258,7 @@ function field(label,name,type='text',value='',extra='') {
 }
 function notes(value = '') { return `<label class="field" for="f-notes"><span>Observações <small>opcional</small></span><textarea id="f-notes" name="notes" rows="3" maxlength="1000" placeholder="Um detalhe para lembrar depois…">${esc(value)}</textarea></label>`; }
 function openDialog(title, fields, saveLabel, save) {
+  $('#dialog-fields').oninput=null;$('#dialog-fields').onchange=null;
   $('#dialog-title').textContent = title; $('#dialog-fields').innerHTML = fields;
   $('#form-error').textContent = ''; $('#save-dialog').textContent = saveLabel || 'Salvar';
   $('#save-dialog').hidden = !save; $('#cancel-dialog').textContent = save ? 'Cancelar' : 'Fechar';
@@ -414,22 +416,29 @@ function noteSource(note) { return note ? {sourceNoteId:note.id,expectedNote:not
 function attachNote(note, message, warnings=[]) {
   $('#dialog-fields').insertAdjacentHTML('afterbegin',`<p class="help note-review">${esc(message)}</p><details class="note-source"><summary>Ver anotação original</summary><p class="note-text">${esc(note.text)}</p></details>${warnings.length?`<p class="help">${warnings.map(esc).join(' ')}</p>`:''}`);
 }
-function noteEditor(id) {
+function noteEditor(id, template=false) {
   const note=(state.notes||[]).find(n=>n.id===id);
   if(note?.deletedAt)throw new Error('Restaure a anotação pela lixeira antes de editar.');
   if(note?.convertedTo){openNoteTarget(note);return;}
   let drafts={};try{drafts=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};}catch{}
-  const draftKey=id||'new', form=noteForm({...note,text:drafts[draftKey]??note?.text??''});
+  const defaultDate=notesMonth&&notesMonth!==today().slice(0,7)?`${notesMonth}-01`:today();
+  const draftKey=id||(template?`envio:${notesMonth||today().slice(0,7)}`:'new');
+  const draft=typeof drafts[draftKey]==='string'?{text:drafts[draftKey]}:drafts[draftKey]||{};
+  const form=template?shipmentNoteForm(draft,defaultDate):noteForm({...note,...draft},defaultDate);
   openDialog(form.title,form.html,'Salvar anotação',async data=>{
-    const input={...form.build(data),date:note?.date||today()};
+    const input=form.build(data);
     await save('puffNota',{input,...(note?{noteId:note.id,expected:note}:{})});
     try{const current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};delete current[draftKey];localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));}catch{}
-    view='anotacoes';search='';$('#search').value='';render();toast('Anotação salva. Escolha Organizar / enviar quando quiser.');
+    view='anotacoes';notesMonth=input.date.slice(0,7);search='';$('#search').value='';render();toast('Anotação salva e em aberto. Use Continuar anotação para completar.');
   });
-  const textarea=$('textarea[name="text"]');
-  textarea.addEventListener('input',()=>{try{const current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};current[draftKey]=textarea.value;localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));}catch{toast('Sem espaço para guardar o rascunho. Salve a anotação antes de sair.');}});
+  const rememberDraft=()=>{try{
+    const data=new FormData($('#editor-form')),current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};
+    current[draftKey]=template?{date:data.get('date'),transport:data.get('transport'),client:data.get('client'),notes:data.get('notes'),items:data.getAll('shipmentItem').map((name,i)=>({name,quantity:data.getAll('shipmentQuantity')[i]}))}:{text:data.get('text'),date:data.get('date')};
+    localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));
+  }catch{toast('Sem espaço para guardar o rascunho. Salve a anotação antes de sair.');}};
+  $('#dialog-fields').oninput=rememberDraft;$('#dialog-fields').onchange=rememberDraft;
   if(!writable)$('#form-error').textContent='Sem conexão para salvar na planilha. O rascunho fica neste aparelho enquanto você escreve.';
-  textarea.focus();
+  $(template?'#sf-transport':'#nf-text').focus();
 }
 function noteDestination(id) {
   const note=(state.notes||[]).find(n=>n.id===id);if(!note)return;
@@ -443,7 +452,7 @@ function noteTrash(id,restore=false) {
   openDialog(restore?'Restaurar anotação':'Excluir anotação?',`<p>${restore?'A anotação volta para sua lista.':'A anotação vai para a lixeira. Você pode restaurá-la depois.'}</p>${note.convertedTo?'<p class="help">O registro que ela gerou continua no painel, sem alterações.</p>':''}<p class="notes note-text">${esc(note.text)}</p>`,restore?'Restaurar anotação':'Excluir anotação',async()=>{
     await save(restore?'puffNotaRestaurar':'puffNotaExcluir',{noteId:id,expected:note,input:{}});
     if(!restore)try{const drafts=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};delete drafts[id];localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(drafts));}catch{}
-    view='anotacoes';search='';$('#search').value='';render();toast(restore?'Anotação restaurada.':'Anotação movida para a lixeira.');
+    view='anotacoes';notesMonth=note.date.slice(0,7);search='';$('#search').value='';render();toast(restore?'Anotação restaurada.':'Anotação movida para a lixeira.');
   });
 }
 function noteStockDestination(note) {
@@ -482,6 +491,7 @@ function shipmentEditor(id, sourceNote) {
 }
 $('#search').addEventListener('input',e=>{search=e.target.value;render();});
 $('#shipment-month').addEventListener('change',e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)){shipmentMonth=e.target.value;render();}});
+document.addEventListener('change',e=>{if(e.target.id==='notes-month'){notesMonth=e.target.value;render();}});
 $('#exchange-rate').addEventListener('click',exchangeForm);
 $('#location-filter').addEventListener('change',e=>{locationFilter=e.target.value;render();});
 $('#category-filter').addEventListener('change',e=>{categoryFilter=e.target.value;render();});
@@ -503,11 +513,12 @@ $('#new-entry').addEventListener('click',()=>{
 });
 document.addEventListener('click',e=>{
   const nav=e.target.closest('[data-view],[data-section]');
-  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios')shipmentMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();if(nav.dataset.section==='anotacoes'&&modulesLoaded)noteEditor();return;}
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios')shipmentMonth=today().slice(0,7);if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
   if(a==='note-new'||a==='note-edit'){noteEditor(id);return;}
+  if(a==='note-template'){noteEditor(undefined,true);return;}
   if(a==='note-convert'){noteDestination(id);return;}
   if(a==='note-delete'||a==='note-restore'){noteTrash(id,a==='note-restore');return;}
   if(a==='note-share'||a==='note-copy'){shareNote(id,a==='note-copy').catch(error=>toast(error.message));return;}
@@ -529,8 +540,8 @@ document.addEventListener('click',e=>{
     for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
   }
   if(a==='shipment-new'||a==='shipment-edit'){shipmentEditor(id);return;}
-  if(a==='shipment-add-item'){const count=$('#shipment-items').querySelectorAll('.shipment-line').length;if(count>=50)throw new Error('Um envio aceita até 50 mercadorias.');$('#shipment-items').insertAdjacentHTML('beforeend',shipmentItemFields({},count));return;}
-  if(a==='shipment-remove-item'){if($('#shipment-items').querySelectorAll('.shipment-line').length<=1)throw new Error('Mantenha pelo menos uma mercadoria no envio.');b.closest('.shipment-line').remove();return;}
+  if(a==='shipment-add-item'){const count=$('#shipment-items').querySelectorAll('.shipment-line').length;if(count>=50)throw new Error('Um envio aceita até 50 mercadorias.');$('#shipment-items').insertAdjacentHTML('beforeend',shipmentItemFields({},count));$('#dialog-fields').dispatchEvent(new Event('input'));return;}
+  if(a==='shipment-remove-item'){if($('#shipment-items').querySelectorAll('.shipment-line').length<=1)throw new Error('Mantenha pelo menos uma mercadoria no envio.');b.closest('.shipment-line').remove();$('#dialog-fields').dispatchEvent(new Event('input'));return;}
   if(a==='open-debts'){view='devedores';render();return;}
   if(a==='new-legacy'){$('#editor').close();originalForm('new');return;}
   if(a==='new-catalog'){$('#editor').close();productForm();return;}
