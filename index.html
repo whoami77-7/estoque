@@ -41,7 +41,7 @@
     <main>
       <div class="toolbar">
         <div class="page-heading">
-          <h1 id="page-title">Estoque</h1>
+          <div class="heading-with-help"><h1 id="page-title">Estoque</h1><button id="page-help" type="button" class="help-button" data-help="estoque" aria-label="Ajuda sobre Estoque" aria-haspopup="dialog" aria-controls="context-help"><span aria-hidden="true">i</span></button></div>
           <p id="page-description">Estoque principal e mercadorias, com cada detalhe à mão.</p>
         </div>
         <button id="new-entry" type="button" class="primary"><span aria-hidden="true">+</span> Novo produto</button>
@@ -81,6 +81,7 @@
     <form id="editor-form">
       <header class="dialog-header">
         <h2 id="dialog-title">Nova mercadoria</h2>
+        <button id="dialog-help" type="button" class="help-button" hidden aria-label="Ajuda deste formulário" aria-haspopup="dialog" aria-controls="context-help"><span aria-hidden="true">i</span></button>
         <button id="close-dialog" class="ghost icon-button" type="button" aria-label="Fechar janela">×</button>
       </header>
       <div id="dialog-fields"></div>
@@ -89,6 +90,14 @@
         <button id="cancel-dialog" class="secondary" type="button">Cancelar</button>
         <button id="save-dialog" class="primary" type="submit">Salvar</button>
       </footer>
+    </form>
+  </dialog>
+  <dialog id="context-help" aria-labelledby="help-title" aria-describedby="help-text">
+    <form method="dialog" class="context-help-body">
+      <p class="help-eyebrow">AJUDA RÁPIDA</p>
+      <h2 id="help-title"></h2>
+      <p id="help-text"></p>
+      <button type="submit" class="secondary" autofocus>Entendi</button>
     </form>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

@@ -146,8 +146,34 @@ const headings = {
   anotacoes:['Anotações','Seu caderno por mês. Salve e continue quando quiser.','+ Anotação livre'],
   arquivados:['Arquivados','Itens guardados para consulta ou restauração.','']
 };
+const helpTopics = {
+  estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros.'],
+  mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
+  devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. A cor melhora até ficar verde. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
+  receber: ['O que falta entrar', 'Aqui ficam os valores pendentes dos aparelhos vendidos. Use o botão de recebimento quando o aparelho for pago.\nDívidas avulsas e pagamentos parciais ficam em Devedores. Reais e dólares têm totais separados.'],
+  vendas: ['Vendas e saídas', 'Consulte os aparelhos vendidos e as saídas de mercadorias, com cliente, data e valor. Use a busca ou a categoria para encontrar um lançamento.'],
+  gastos: ['Registre os custos', 'Anote a descrição, o valor, a moeda e a data do gasto. Moeda / câmbio confirma a moeda do valor existente. Excluir gasto remove o registro; baixe um backup se quiser guardar uma cópia.'],
+  clientes: ['Consulte por cliente', 'Encontre o cliente pela busca e confira os registros associados a ele. Para corrigir uma venda ou dívida, abra a área correspondente no painel.'],
+  locais: ['Onde está cada produto', 'Os locais organizam os saldos. Cadastre um local antes de usá-lo em uma entrada ou transferência.\nNo estoque, escolha o local para conferir apenas as unidades que estão lá.'],
+  decisao: ['Números para comparar', 'O ranking usa o estoque, as vendas e os custos registrados. Escolha a moeda e a categoria para comparar.\nAs projeções são estimativas do ritmo anterior, não vendas garantidas. Dados sem moeda ou custo podem limitar a análise.'],
+  envios: ['Envios por mês', 'Registre transporte, cliente, mercadorias, quantidades e data. A data define em qual mês o envio aparece; os meses anteriores continuam guardados.\nSalvar um envio organiza a lista. Para baixar quantidades, registre também a Saída no estoque.'],
+  anotacoes: ['Escreva agora, organize depois', 'Anotação livre: escreva do seu jeito. Anotar envio: use os campos prontos.\nSalve e use Continuar anotação para completar. Em Organizar / enviar, escolha Envios, Financeiro ou Estoque e revise antes de confirmar.\nTroque o mês para consultar as anteriores.'],
+  arquivados: ['Itens guardados', 'Consulte os aparelhos arquivados e restaure quando precisar. As anotações excluídas ficam na Lixeira de Anotações; as dívidas excluídas ficam em Devedores.'],
+  produto: ['Cadastro da mercadoria', 'Preencha nome, preço por unidade e moeda. Foto, custo e observações ajudam a identificar o produto.\nDepois de cadastrar, use Entrada para informar a quantidade e o local. Alterar o cadastro não altera o saldo.'],
+  divida: ['Valor original da dívida', 'Informe o total combinado, antes dos pagamentos. O painel desconta os pagamentos registrados para calcular quanto falta.\nPara registrar dinheiro que entrou agora, use Pagamento parcial no card. Não diminua o valor original manualmente.'],
+  pagamento: ['Quanto ele pagou agora?', 'Informe somente o valor recebido neste pagamento e a data. O painel desconta esse valor da dívida e mostra o novo saldo.\nSe recebeu em outra moeda, informe a taxa combinada em Câmbio: quantos reais vale US$ 1.'],
+  'pagamento-antigo': ['Corrigir um abatimento antigo', 'Corrija o valor abatido, a data ou a observação. O saldo será recalculado. A moeda recebida e o câmbio não foram informados nesse registro antigo.'],
+  entrada: ['Somar ao estoque', 'Informe a quantidade que chegou, o local e a data. Ao salvar, essas unidades são somadas ao saldo do produto naquele local.'],
+  saida: ['Dar saída no estoque', 'Informe quantidade, local, cliente e preço por unidade. Ao salvar, o saldo desse local diminui.\nSe ficou para pagar depois, marque Anotar esta venda em Devedores. O painel cria a dívida com o total da saída.'],
+  transferencia: ['Mudar de local', 'Escolha a quantidade, o local de origem e o destino. O saldo sai de um local e entra no outro; o total do produto permanece igual.'],
+  cambio: ['Reais e dólares', 'Escolha a moeda em que o valor foi combinado. Câmbio é opcional para mostrar equivalências e necessário ao receber em outra moeda.\nA cotação é manual: US$ 1 = quantos reais? Alterar a referência não reescreve pagamentos antigos.'],
+  nota: ['Sua anotação fica em aberto', 'Escreva e toque em Salvar anotação para guardar no painel. Depois, use Continuar anotação para acrescentar informações.\nA data define o mês. Sem conexão, o rascunho fica só neste aparelho até você conseguir salvar.'],
+  'nota-envio': ['Preencha e continue depois', 'Informe transporte, cliente, data e mercadorias. Use + Adicionar mercadoria para incluir mais itens.\nSalvar anotação mantém o texto em aberto no caderno. Para criar um envio, use Organizar / enviar depois.'],
+};
 
 function render() {
+  $('#page-help').dataset.help=view;
+  $('#page-help').setAttribute('aria-label',`Ajuda sobre ${headings[view][0]}`);
   if (invalid && view !== 'anotacoes') { $('#content').innerHTML = empty('Conecte com sua chave para carregar os dados do painel.'); $('#new-entry').disabled = true; return; }
   const [title,description,button] = headings[view];
   $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
@@ -166,6 +192,7 @@ function render() {
   $('#section-tabs').hidden=!sectionViews.length;
   $('#shipment-month').closest('label').hidden=view!=='envios';$('#shipment-month').value=shipmentMonth;
   $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
+  $('#search').setAttribute('aria-label',$('#search').placeholder);
   $('#search').closest('label').hidden = view === 'decisao';
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
   $('#category-filter').closest('label').hidden = !['estoque','mercadorias','vendas','receber','decisao'].includes(view);
@@ -194,7 +221,7 @@ function render() {
   setAlissonBalance(state.commission?.balanceCents || 0);
 }
 
-function filteredLegacy(){return {...legacy,itens:legacy.itens.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter)};}
+function filteredLegacy(){return ['estoque','mercadorias','vendas','receber'].includes(view)?{...legacy,itens:legacy.itens.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter)}:legacy;}
 function extraView(){
   const products=state.products.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter), ids=new Set(products.map(p=>p.id));
   if(view==='vendas'){
@@ -237,7 +264,7 @@ function renderProducts() {
 
 function renderDebts() {
   const debts = state.debts.filter(d => !d.deletedAt && matches(d.name,d.description,d.notes));
-  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Anotações em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
+  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Dívidas em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining, payments = d.payments.filter(p=>!p.deletedAt);
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
@@ -257,9 +284,10 @@ function field(label,name,type='text',value='',extra='') {
   return `<label class="field" for="f-${name}"><span>${label}</span><input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${extra}></label>`;
 }
 function notes(value = '') { return `<label class="field" for="f-notes"><span>Observações <small>opcional</small></span><textarea id="f-notes" name="notes" rows="3" maxlength="1000" placeholder="Um detalhe para lembrar depois…">${esc(value)}</textarea></label>`; }
-function openDialog(title, fields, saveLabel, save) {
+function openDialog(title, fields, saveLabel, save, helpTopic = '') {
   $('#dialog-fields').oninput=null;$('#dialog-fields').onchange=null;
   $('#dialog-title').textContent = title; $('#dialog-fields').innerHTML = fields;
+  $('#dialog-help').hidden=!helpTopic; $('#dialog-help').dataset.help=helpTopic;
   $('#form-error').textContent = ''; $('#save-dialog').textContent = saveLabel || 'Salvar';
   $('#save-dialog').hidden = !save; $('#cancel-dialog').textContent = save ? 'Cancelar' : 'Fechar';
   dialogAction = save; dialogVersion = stored; $('#editor').showModal();
@@ -284,7 +312,7 @@ function productForm(id, sourceNote) {
       await save('puffProduto',{input,...noteSource(sourceNote),...(product?{productId:product.id,expected:product}:{})});
       if(!product){view='mercadorias';stockFilter='mercadorias';locationFilter='';categoryFilter='';search='';$('#search').value='';$('#category-filter').value='';render();}
       toast(product?'Produto atualizado.':'Produto cadastrado. Use Entrada para informar quantidade e local.');
-    });
+    }, 'produto');
   if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;if(draft.items.length===1)$('#f-name').value=draft.items[0].name;$('#f-notes').value=draft.notes;$('#mf-currency').value='';$('#mf-costCurrency').value='';attachNote(sourceNote,'Confira nome, moeda e preço. O produto será cadastrado; a quantidade entra depois em Entrada.');}
 }
 
@@ -304,7 +332,7 @@ function debtForm(sourceNote,id) {
       const input={name:data.get('name'),description:data.get('description'),units:Number(data.get('units')),totalCents:cents(data.get('total')),...readCurrencyForm(data),date:data.get('date'),dueDate:data.get('dueDate'),notes:data.get('notes')};
       if(input.totalCents<paid)throw new Error('O valor original não pode ser menor que o total já abatido. Confira os pagamentos no histórico.');
       await save(debt?'puffDividaEdit':'puffDivida',{...(debt?{debtId:debt.id,expected:debt}:noteSource(sourceNote)),input});toast(debt?'Dívida atualizada.':'Dívida anotada.');
-    });
+    }, 'divida');
   if(sourceNote){const draft=noteToDebt(sourceNote,today());for(const name of ['name','description','total','date','notes'])$('#f-'+name).value=draft.input[name]||'';$('#f-units').value=draft.input.units||1;$('#mf-currency').value=draft.input.currency||'';attachNote(sourceNote,'Confira pessoa, valor e moeda antes de registrar o valor a receber.',draft.warnings);}
 }
 function paymentForm(id,paymentId) {
@@ -316,7 +344,7 @@ function paymentForm(id,paymentId) {
   if(payment&&payment.receivedCents===undefined){
     openDialog(`Editar pagamento · ${debt.name}`,`<p class="help">Este registro antigo informa apenas o abatimento. A moeda recebida e o câmbio continuam sem identificação.</p>`+field(`Abatimento registrado · ${currencyOf(debt)||'moeda a confirmar'}`,'amount','text',(payment.amountCents/100).toFixed(2),'required inputmode="decimal"')+field('Data do pagamento','date','date',payment.date,`required min="${esc(debt.date)}"`)+notes(payment.note),'Salvar pagamento',async data=>{
       await save('puffPagamentoEdit',{debtId:id,paymentId,expected:debt,input:{amountCents:cents(data.get('amount')),date:data.get('date'),note:data.get('notes')}});toast('Pagamento corrigido e saldo recalculado.');
-    });return;
+    }, 'pagamento-antigo');return;
   }
   if(!currencyOf(debt)){debtCurrencyForm(id);return;}
   const remaining = debtBalance(debt)+(payment?.amountCents||0);
@@ -328,7 +356,7 @@ function paymentForm(id,paymentId) {
       if(applied==null)throw new Error('Informe o câmbio para receber em outra moeda.');
       if(applied<=0||applied>remaining)throw new Error(`O abatimento precisa ser maior que zero e até ${money(remaining,debt.currency)}.`);
       await save(payment?'puffPagamentoEdit':'puffPagamento',{debtId:id,expected:debt,...(payment?{paymentId}:{}),input:{receivedCents,...currency,date:data.get('date'),note:data.get('notes')}},payment?'':'Pagamento recebido');toast('Pagamento registrado e saldo atualizado.');
-    });
+    }, 'pagamento');
   const preview = $('#payment-remaining');
   const updateRemaining = () => {
     preview.classList.remove('success');
@@ -359,7 +387,7 @@ function movementForm(id,type,sourceNote) {
       const quantity=Number(data.get('quantity')),unitPriceCents=type==='saida'?cents(data.get('unitPrice')):p.priceCents;
       const currency=type==='saida'?readCurrencyForm(data):{currency:p.currency,fxRate:p.fxRate,fxDate:p.fxDate};
       await save('puffMovimento',{productId:id,...noteSource(sourceNote),input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
-    });
+    }, type);
   if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;$('#f-quantity').value=draft.items.length===1?draft.items[0].quantity:'';$('#f-date').value=draft.date||today();$('#f-notes').value=draft.notes;if(type==='saida')$('#f-client').value=draft.client;attachNote(sourceNote,'Confira produto, quantidade e local. Ao confirmar, esta operação altera o estoque.');}
   $('#f-location').addEventListener('change',()=>{$('#stock-at-location').textContent=`${balance(state,id,$('#f-location').value)} un. em ${$('#f-location').value}`;});
   if(type==='saida'){
@@ -373,7 +401,7 @@ function exchangeForm() {
   openDialog('Câmbio de referência',`<p class="help">Informe a cotação que você usa hoje. Ela mostra equivalências nos cards e pode ser copiada para um novo lançamento. Pagamentos antigos conservam suas taxas.</p><div class="form-grid">${field('US$ 1 vale quantos reais?','rate','text',reference.fxRate??'','inputmode="decimal" placeholder="Ex.: 5,25"')}${field('Data da cotação','rateDate','date',reference.fxDate||today())}</div><p class="help">Cotação informada manualmente. Deixe o valor vazio para retirar a referência.</p>`,'Salvar câmbio',async data=>{
     const input=readCurrencyForm({get:name=>name==='currency'?'BRL':name==='fxRate'?data.get('rate'):data.get('rateDate')});
     await save('puffCambio',{input:{fxRate:input.fxRate,fxDate:input.fxDate}});toast('Câmbio de referência atualizado.');
-  });
+  }, 'cambio');
 }
 function debtCurrencyForm(id) {
   const debt=state.debts.find(d=>d.id===id);if(!debt)return;
@@ -430,7 +458,7 @@ function noteEditor(id, template=false) {
     await save('puffNota',{input,...(note?{noteId:note.id,expected:note}:{})});
     try{const current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};delete current[draftKey];localStorage.setItem(NOTE_DRAFT_KEY,JSON.stringify(current));}catch{}
     view='anotacoes';notesMonth=input.date.slice(0,7);search='';$('#search').value='';render();toast('Anotação salva e em aberto. Use Continuar anotação para completar.');
-  });
+  }, template?'nota-envio':'nota');
   const rememberDraft=()=>{try{
     const data=new FormData($('#editor-form')),current=JSON.parse(localStorage.getItem(NOTE_DRAFT_KEY))||{};
     current[draftKey]=template?{date:data.get('date'),transport:data.get('transport'),client:data.get('client'),notes:data.get('notes'),items:data.getAll('shipmentItem').map((name,i)=>({name,quantity:data.getAll('shipmentQuantity')[i]}))}:{text:data.get('text'),date:data.get('date')};
@@ -486,7 +514,7 @@ function shipmentEditor(id, sourceNote) {
     const input=form.build(data);
     await save('puffEnvio',{input,...noteSource(sourceNote),...(shipment?{shipmentId:shipment.id,expected:shipment}:{})});
     if(sourceNote)view='envios';shipmentMonth=input.date.slice(0,7);render();toast('Envio registrado no mês correspondente.');
-  });
+  }, 'envios');
   if(sourceNote){$('#sf-date').value=draft.input.date;attachNote(sourceNote,'Confira o transporte, o cliente, a data e as quantidades.',draft.warnings);}
 }
 $('#search').addEventListener('input',e=>{search=e.target.value;render();});
@@ -501,7 +529,7 @@ function originalForm(kind,id){
     const request=form.build(data);
     if(kind==='edit')request.payload.input.photo=await readPhoto(data.get('photo'),request.payload.input.photo);
     await save(request.action,request.payload,kind==='sell'?'Venda registrada':'');
-  });
+  }, kind.includes('expense')?'gastos':kind==='local'?'locais':kind==='sell'?'vendas':'estoque');
 }
 $('#new-entry').addEventListener('click',()=>{
   if(view==='anotacoes')noteEditor();
@@ -512,6 +540,8 @@ $('#new-entry').addEventListener('click',()=>{
   else productForm();
 });
 document.addEventListener('click',e=>{
+  const help=e.target.closest('[data-help]');
+  if(help){const topic=helpTopics[help.dataset.help];if(topic){$('#help-title').textContent=topic[0];$('#help-text').textContent=topic[1];$('#context-help').showModal();}return;}
   const nav=e.target.closest('[data-view],[data-section]');
   if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios')shipmentMonth=today().slice(0,7);if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
