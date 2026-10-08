@@ -279,6 +279,15 @@ export function addMovement(state, productId, input) {
   return movement;
 }
 
+export function shipmentTracking(input) {
+  const expectedDate = input.expectedDate === undefined || input.expectedDate === '' ? '' : date(input.expectedDate, 'Previsão de chegada');
+  if (expectedDate && expectedDate < input.date) throw new Error('A previsão de chegada não pode ser anterior ao envio.');
+  const trackingCode = text(input.trackingCode, 'Código de rastreio', 120);
+  const trackingUrl = text(input.trackingUrl, 'Link de rastreio', 1000);
+  if (trackingUrl && !/^https?:\/\/[^\s/?#@\\]+(?:[/?#][^\s\\]*)?$/i.test(trackingUrl)) throw new Error('Use um link de rastreio completo, começando com https://, sem usuário ou senha.');
+  return { expectedDate, trackingCode, trackingUrl };
+}
+
 function shipmentFields(input) {
   if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new Error('Inclua de 1 a 50 mercadorias no envio.');
   const status = input.status === undefined ? 'pending' : input.status;
@@ -288,7 +297,7 @@ function shipmentFields(input) {
   if (deliveredDate && status !== 'delivered') throw new Error('Marque o envio como entregue antes de informar a data da entrega.');
   if (deliveredDate && deliveredDate < sentDate) throw new Error('A entrega não pode ser anterior ao envio.');
   return { transport: text(input.transport, 'Transportadora', 120, true), client: text(input.client, 'Cliente', 120, true),
-    date: sentDate, status, deliveredDate, notes: text(input.notes, 'Observações'),
+    date: sentDate, status, deliveredDate, ...shipmentTracking(input), notes: text(input.notes, 'Observações'),
     items: input.items.map(item => ({ name: text(item?.name, 'Mercadoria', 120, true), quantity: integer(item?.quantity, 'Quantidade', 1, 1000000) })) };
 }
 
@@ -346,8 +355,15 @@ export function addShipment(state, input) {
 export function updateShipment(state, id, input) {
   const shipment = (state.shipments || []).find(item => item.id === id);
   if (!shipment) throw new Error('Envio não encontrado.');
+  if (shipment.deletedAt !== undefined) throw new Error('Restaure o envio antes de editar ou marcar a entrega.');
   Object.assign(shipment, shipmentFields({ ...shipment, ...input }), { updatedAt: revisedAt(shipment) });
   return shipment;
+}
+
+export function setShipmentDeleted(state, id, deleted) {
+  const shipment = (state.shipments || []).find(item => item.id === id);
+  if (!shipment) throw new Error('Envio não encontrado.');
+  return setDeleted(shipment, deleted, 'Envio');
 }
 
 export function validateState(state) {
@@ -384,7 +400,7 @@ export function validateState(state) {
     validateDebtPayments(debt);
   }
   if (state.shipments !== undefined && !Array.isArray(state.shipments)) throw new Error('Histórico de envios inválido.');
-  (state.shipments || []).forEach(shipment => { identify(shipment, true); shipmentFields(shipment); });
+  (state.shipments || []).forEach(shipment => { identify(shipment, true); validateRevision(shipment); shipmentFields(shipment); });
   if (state.notes !== undefined && !Array.isArray(state.notes)) throw new Error('Histórico de anotações inválido.');
   (state.notes || []).forEach(note => {
     identify(note, true); noteFields(note);

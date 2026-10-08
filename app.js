@@ -157,7 +157,7 @@ const helpTopics = {
   clientes: ['Consulte por cliente', 'Encontre o cliente pela busca e confira os registros associados a ele. Para corrigir uma venda ou dívida, abra a área correspondente no painel.'],
   locais: ['Onde está cada produto', 'Os locais organizam os saldos. Cadastre um local antes de usá-lo em uma entrada ou transferência.\nNo estoque, escolha o local para conferir apenas as unidades que estão lá.'],
   decisao: ['Números para comparar', 'O ranking usa o estoque, as vendas e os custos registrados. Escolha a moeda e a categoria para comparar.\nAs projeções são estimativas do ritmo anterior, não vendas garantidas. Dados sem moeda ou custo podem limitar a análise.'],
-  envios: ['Envios por mês', 'Registre transporte, cliente, mercadorias, quantidades e data. Use Marcar entregue quando chegar: o card fica verde. Os vermelhos aguardam entrega ou confirmação. Filtre por situação para conferir as pendências.\nSalvar um envio organiza a lista. Para baixar quantidades, registre também a Saída no estoque.'],
+  envios: ['Envios por mês', 'Registre transporte, cliente, mercadorias, quantidades e data. Marcar entregue deixa o card verde. Abra o card para editar, ver rastreio ou excluir.\nPrevisão e rastreio são opcionais no formulário. O prazo vencido usa a previsão informada; o link abre o site da transportadora. Excluir guarda o envio na lixeira do mês para restaurar depois.\nSalvar um envio organiza a lista. Para baixar quantidades, registre também a Saída no estoque.'],
   anotacoes: ['Escreva agora, organize depois', 'Anotação livre: escreva do seu jeito. Anotar envio: use os campos prontos.\nSalve e use Continuar anotação para completar. Em Organizar / enviar, escolha Envios, Financeiro ou Estoque e revise antes de confirmar.\nTroque o mês para consultar as anteriores.'],
   arquivados: ['Lixeira do estoque', 'Consulte aparelhos e mercadorias excluídos e restaure quando precisar. As anotações excluídas ficam na Lixeira de Anotações; as dívidas excluídas ficam em Devedores.'],
   produto: ['Cadastro da mercadoria', 'Preencha nome, preço por unidade e moeda. Foto, custo e observações ajudam a identificar o produto.\nDepois de cadastrar, use Entrada para informar a quantidade e o local. Alterar o cadastro não altera o saldo.'],
@@ -283,12 +283,22 @@ function productTrash(id,restore=false) {
 
 function shipmentDelivery(id) {
   const shipment=(state.shipments||[]).find(s=>s.id===id);if(!shipment)return;
+  if(shipment.deletedAt)throw new Error('Restaure o envio antes de marcar a entrega.');
   const delivered=shipment.status==='delivered';
   openDialog(delivered?'Desfazer entrega?':'Marcar como entregue',`<p class="dialog-summary"><strong>${esc(shipment.client)}</strong><br>${esc(shipment.transport)} · enviado em ${dateBR(shipment.date)}</p>${delivered?'<p>O envio volta a Aguardando entrega.</p>':field('Data da entrega · opcional','deliveredDate','date','',`min="${esc(shipment.date)}" max="${today()}"`)}<p class="help">Confirma apenas a chegada. O estoque, as vendas e o cafezinho permanecem iguais.</p>`,delivered?'Voltar para aguardando':'Confirmar entrega',async data=>{
     const deliveredDate=delivered?'':String(data.get('deliveredDate')||'');
     if(deliveredDate&&deliveredDate>today())throw new Error('A entrega confirmada não pode ter uma data futura.');
     await save('puffEnvio',{shipmentId:id,expected:shipment,input:{status:delivered?'pending':'delivered',deliveredDate}});
     toast(delivered?'Envio voltou para aguardando.':'Entrega confirmada.');
+  },'envios');
+}
+
+function shipmentTrash(id,restore=false) {
+  const shipment=(state.shipments||[]).find(s=>s.id===id);if(!shipment)return;
+  if(Boolean(shipment.deletedAt)!==restore)throw new Error('Este envio mudou. Atualize o painel.');
+  openDialog(restore?'Restaurar envio?':'Excluir envio?',`<p class="dialog-summary"><strong>${esc(shipment.client)}</strong><br>${esc(shipment.transport)} · ${dateBR(shipment.date)}</p><p>${restore?'O envio volta à lista com as mercadorias e a situação que tinha.':'O envio fica na lixeira deste mês. Você pode restaurá-lo depois.'}</p><p class="help">Estoque, vendas, anotações e cafezinho permanecem iguais.</p>`,restore?'Restaurar envio':'Mover para lixeira',async()=>{
+    await save(restore?'puffEnvioRestaurar':'puffEnvioExcluir',{shipmentId:id,expected:shipment,input:{}});
+    toast(restore?'Envio restaurado.':'Envio guardado em Envios excluídos.');
   },'envios');
 }
 
@@ -542,6 +552,7 @@ async function shareNote(id,copyOnly=false) {
 }
 function shipmentEditor(id, sourceNote) {
   const shipment=(state.shipments||[]).find(s=>s.id===id);
+  if(shipment?.deletedAt){view='envios';shipmentMonth=shipment.date.slice(0,7);shipmentStatus='';search='';$('#search').value='';$('#editor').close();render();toast('Envio na lixeira. Abra Envios excluídos para restaurar.');return;}
   const draft=sourceNote?noteToShipment(sourceNote,today()):null;
   const form=shipmentForm(draft?.input||shipment,today());
   openDialog(sourceNote?'Anotação → Envio':form.title,form.html,'Salvar envio',async data=>{
@@ -604,6 +615,7 @@ document.addEventListener('click',e=>{
     for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
   }
   if(a==='shipment-delivery'){shipmentDelivery(id);return;}
+  if(a==='shipment-delete'||a==='shipment-restore'){shipmentTrash(id,a==='shipment-restore');return;}
   if(a==='product-delete'||a==='product-restore'){productTrash(id,a==='product-restore');return;}
   if(a==='shipment-new'||a==='shipment-edit'){shipmentEditor(id);return;}
   if(a==='shipment-add-item'){const count=$('#shipment-items').querySelectorAll('.shipment-line').length;if(count>=50)throw new Error('Um envio aceita até 50 mercadorias.');$('#shipment-items').insertAdjacentHTML('beforeend',shipmentItemFields({},count));$('#dialog-fields').dispatchEvent(new Event('input'));return;}

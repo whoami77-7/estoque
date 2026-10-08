@@ -548,3 +548,4 @@ dialog::backdrop { background: #030815ba; }
 .stock-trash { margin: -8px 0 12px; font-size: 12px; padding-inline: 0; }
 .card-actions .danger { color: var(--bad); }
 @media(max-width:540px) { .shipment-delivery { gap: 8px; } .shipment-delivery button { max-width: 50%; padding-inline: 10px; } .shipment-status { font-size: 12px; } }
+.tracking-link{display:inline-flex;align-items:center;min-height:44px;color:#a9caff;font-weight:700;text-underline-offset:4px}
