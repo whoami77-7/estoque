@@ -23,6 +23,7 @@ try{pendingOperation=JSON.parse(localStorage.getItem(PENDING_KEY));}catch{}
 let modulesLoaded=false;
 let decisionCurrency=localStorage.getItem('puff:decision-currency')==='USD'?'USD':'BRL';
 let shipmentMonth=today().slice(0,7);
+let shipmentStatus='';
 let notesMonth=today().slice(0,7);
 try{const cache=JSON.parse(localStorage.getItem(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
 const locations = () => [...new Set([...LOCATIONS,...(legacy.locais || []),...state.movements.flatMap(m=>[m.location,m.toLocation])].filter(Boolean))];
@@ -144,10 +145,10 @@ const headings = {
   decisao:['Tomada de decisão','Números que ajudam a escolher o próximo passo.',''],
   envios:['Envios','O que saiu, com quem foi e para quem. Cada mês fica guardado.',''],
   anotacoes:['Anotações','Seu caderno por mês. Salve e continue quando quiser.','+ Anotação livre'],
-  arquivados:['Arquivados','Itens guardados para consulta ou restauração.','']
+  arquivados:['Lixeira do estoque','Excluiu por engano? Restaure o item aqui.','']
 };
 const helpTopics = {
-  estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros.'],
+  estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros. Excluir guarda o item na Lixeira do estoque, sem registrar venda.'],
   mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
   devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. A cor melhora até ficar verde. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
   receber: ['O que falta entrar', 'Aqui ficam os valores pendentes dos aparelhos vendidos. Use o botão de recebimento quando o aparelho for pago.\nDívidas avulsas e pagamentos parciais ficam em Devedores. Reais e dólares têm totais separados.'],
@@ -156,9 +157,9 @@ const helpTopics = {
   clientes: ['Consulte por cliente', 'Encontre o cliente pela busca e confira os registros associados a ele. Para corrigir uma venda ou dívida, abra a área correspondente no painel.'],
   locais: ['Onde está cada produto', 'Os locais organizam os saldos. Cadastre um local antes de usá-lo em uma entrada ou transferência.\nNo estoque, escolha o local para conferir apenas as unidades que estão lá.'],
   decisao: ['Números para comparar', 'O ranking usa o estoque, as vendas e os custos registrados. Escolha a moeda e a categoria para comparar.\nAs projeções são estimativas do ritmo anterior, não vendas garantidas. Dados sem moeda ou custo podem limitar a análise.'],
-  envios: ['Envios por mês', 'Registre transporte, cliente, mercadorias, quantidades e data. A data define em qual mês o envio aparece; os meses anteriores continuam guardados.\nSalvar um envio organiza a lista. Para baixar quantidades, registre também a Saída no estoque.'],
+  envios: ['Envios por mês', 'Registre transporte, cliente, mercadorias, quantidades e data. Use Marcar entregue quando chegar: o card fica verde. Os vermelhos aguardam entrega ou confirmação. Filtre por situação para conferir as pendências.\nSalvar um envio organiza a lista. Para baixar quantidades, registre também a Saída no estoque.'],
   anotacoes: ['Escreva agora, organize depois', 'Anotação livre: escreva do seu jeito. Anotar envio: use os campos prontos.\nSalve e use Continuar anotação para completar. Em Organizar / enviar, escolha Envios, Financeiro ou Estoque e revise antes de confirmar.\nTroque o mês para consultar as anteriores.'],
-  arquivados: ['Itens guardados', 'Consulte os aparelhos arquivados e restaure quando precisar. As anotações excluídas ficam na Lixeira de Anotações; as dívidas excluídas ficam em Devedores.'],
+  arquivados: ['Lixeira do estoque', 'Consulte aparelhos e mercadorias excluídos e restaure quando precisar. As anotações excluídas ficam na Lixeira de Anotações; as dívidas excluídas ficam em Devedores.'],
   produto: ['Cadastro da mercadoria', 'Preencha nome, preço por unidade e moeda. Foto, custo e observações ajudam a identificar o produto.\nDepois de cadastrar, use Entrada para informar a quantidade e o local. Alterar o cadastro não altera o saldo.'],
   divida: ['Valor original da dívida', 'Informe o total combinado, antes dos pagamentos. O painel desconta os pagamentos registrados para calcular quanto falta.\nPara registrar dinheiro que entrou agora, use Pagamento parcial no card. Não diminua o valor original manualmente.'],
   pagamento: ['Quanto ele pagou agora?', 'Informe somente o valor recebido neste pagamento e a data. O painel desconta esse valor da dívida e mostra o novo saldo.\nSe recebeu em outra moeda, informe a taxa combinada em Câmbio: quantos reais vale US$ 1.'],
@@ -191,6 +192,7 @@ function render() {
   $('#section-tabs').classList.toggle('stock-tabs',section==='estoque');
   $('#section-tabs').hidden=!sectionViews.length;
   $('#shipment-month').closest('label').hidden=view!=='envios';$('#shipment-month').value=shipmentMonth;
+  $('#stock-trash').hidden=!['estoque','mercadorias'].includes(view);
   $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').setAttribute('aria-label',$('#search').placeholder);
   $('#search').closest('label').hidden = view === 'decisao';
@@ -205,7 +207,8 @@ function render() {
   $('#location-filter').innerHTML='<option value="">Todos os locais</option>'+locationOptions(locationFilter);$('#location-filter').value=locationFilter;
   document.querySelectorAll('[data-view]').forEach(b => { const active=b.dataset.view===view&&(b.dataset.stock===undefined||b.dataset.stock===stockFilter&&b.dataset.location===locationFilter);b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false'); });
   if (view === 'mercadorias' || view === 'estoque') renderProducts();
-  else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search}):empty('Atualize a conexão para consultar os envios.');}
+  else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search,status:shipmentStatus}):empty('Atualize a conexão para consultar os envios.');}
+  else if(view==='arquivados')renderTrash();
   else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search,month:notesMonth}):empty('Conecte para carregar suas anotações.');}
   else if (view === 'devedores') {if(modulesLoaded)renderDebts();else{$('#summary').innerHTML='';$('#content').innerHTML=empty('A caderneta ainda não foi carregada. Atualize a conexão para consultar o saldo.');}}
   else if (view === 'decisao') {
@@ -233,13 +236,14 @@ function extraView(){
     const clients=[...new Set(state.movements.filter(m=>m.type==='saida').map(m=>m.client))].filter(name=>matches(name));
     return clients.length?`<h2 class="section-title">Clientes das mercadorias</h2><div class="product-grid">${clients.map(name=>{const movements=state.movements.filter(m=>m.type==='saida'&&m.client===name);return `<article class="product-card stock-mercadorias"><h3>${esc(name)}</h3><strong>${moneyTotals(movements,m=>m.quantity*m.unitPriceCents)}</strong><p>${movements.reduce((n,m)=>n+m.quantity,0)} unidades · ${esc([...new Set(movements.map(m=>m.location))].join(', '))}</p></article>`;}).join('')}</div>`:'';
   }
-  if(view==='locais')return `<h2 class="section-title">Mercadorias por local</h2><div class="product-grid">${locations().filter(loc=>matches(loc)).map(loc=>`<article class="product-card stock-mercadorias"><h3>${esc(loc)}</h3><strong>${state.products.reduce((n,p)=>n+balance(state,p.id,loc),0)} unidades</strong><div class="card-actions"><button type="button" class="secondary" data-action="filter-location" data-location="${esc(loc)}">Ver produtos deste local</button></div></article>`).join('')}</div>`;
+  if(view==='locais')return `<h2 class="section-title">Mercadorias por local</h2><div class="product-grid">${locations().filter(loc=>matches(loc)).map(loc=>`<article class="product-card stock-mercadorias"><h3>${esc(loc)}</h3><strong>${state.products.filter(p=>!p.deletedAt).reduce((n,p)=>n+balance(state,p.id,loc),0)} unidades</strong><div class="card-actions"><button type="button" class="secondary" data-action="filter-location" data-location="${esc(loc)}">Ver produtos deste local</button></div></article>`).join('')}</div>`;
   return '';
 }
 
 function renderProducts() {
   const selectedStock = view === 'mercadorias' ? 'mercadorias' : stockFilter;
   const products = state.products.filter(p => {
+    if(p.deletedAt)return false;
     const clients = state.movements.filter(m=>m.productId===p.id).map(m=>m.client).join(' ');
     return (!selectedStock || (p.stock || 'mercadorias') === selectedStock) && (!categoryFilter||classifyCategory(p)===categoryFilter) && matches(p.name,p.category,p.notes,clients) && (!locationFilter||balance(state,p.id,locationFilter)>0);
   }).sort((a,b)=>Number(b.stock==='principal')-Number(a.stock==='principal'));
@@ -247,7 +251,7 @@ function renderProducts() {
   const mainItems=view==='estoque'&&stockFilter!=='mercadorias'?filteredLegacy().itens.filter(p=>normalize(p.situacao)!=='vendido'&&(!locationFilter||p.local===locationFilter)&&matches(p.modelo,p.cliente,p.notes,p.local)):[];
   const quantity = products.reduce((n,p) => n + balance(state,p.id,loc),mainItems.length);
   $('#summary').innerHTML = `<div class="summary-strip">${stat('Aparelhos',mainItems.length)}${stat('Produtos no catálogo',products.length)}${stat(locationFilter ? `Unidades · ${esc(locationFilter)}` : 'Unidades em estoque',quantity)}</div>`;
-  const noCatalog=selectedStock!=='principal'&&!state.products.length;
+  const noCatalog=selectedStock!=='principal'&&!state.products.some(p=>!p.deletedAt);
   const catalogEmpty=modulesLoaded?`<div class="empty stock-empty"><strong>Catálogo de mercadorias vazio</strong><p>Cadastre o produto e depois use Entrada para informar a quantidade e o local, como Depósito SP.</p><div class="card-actions"><button type="button" class="primary" data-action="new-catalog">+ Cadastrar mercadoria</button>${state.shipments?.length?'<button type="button" class="secondary" data-view="envios">Conferir listas em Envios</button>':''}</div><p class="help">Envios guarda suas listas; não altera o saldo do estoque.</p></div>`:empty('Atualize a conexão para consultar o catálogo de mercadorias.');
   $('#content').innerHTML = products.length ? `<div class="product-grid">${products.map(p => {
     const qty = balance(state,p.id,loc), isLow = qty <= p.minStock;
@@ -257,9 +261,35 @@ function renderProducts() {
       <div class="card-values"><div><span class="meta">${locationFilter ? 'Neste local' : 'Disponível'}</span><strong class="stock-number">${qty}<small> un.</small></strong></div><div><span class="meta">Preço por unidade</span><strong>${moneyHTML(p.priceCents,p,state.settings)}</strong></div></div>
       <div class="client-location"><div class="context-chip"><span class="context-label">Local · unidades</span><strong>${esc(places || 'Sem saldo nos locais')}</strong></div><div class="context-chip"><span class="context-label">Último cliente</span><strong>${esc(lastSale?.client || 'Ainda sem saída')}</strong></div></div>
       <details class="card-details"><summary>Detalhes e custos</summary>${p.costCents!=null?`<div class="card-values"><div><span class="meta">Custo por unidade</span><strong>${moneyHTML(p.costCents,p,state.settings,'costCurrency')}</strong></div></div>`:''}<p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('details-product',p.id,'Histórico','ghost')}</div></details>
-      <div class="card-actions">${action('entrada',p.id,'↓ Entrada')}${action('saida',p.id,'↑ Saída','primary')}</div></article>`;
+      <div class="card-actions">${action('entrada',p.id,'↓ Entrada')}${action('saida',p.id,'↑ Saída','primary')}${action('product-delete',p.id,'🗑 Excluir','ghost danger')}</div></article>`;
   }).join('')}</div>` : noCatalog?catalogEmpty:`<div class="empty stock-empty"><strong>${locationFilter?`Nenhum produto com saldo em ${esc(locationFilter)}.`:'Nenhum produto encontrado.'}</strong><p>Confira o local, a categoria e a busca. Para adicionar quantidades, abra a mercadoria e use Entrada.</p><button type="button" class="secondary" data-view="estoque" data-stock="" data-location="">Mostrar todos os produtos</button></div>`;
   if(mainItems.length)$('#content').innerHTML=legacyCards({...legacy,itens:mainItems})+(products.length?`<h2 class="section-title">Catálogo de mercadorias</h2>`+$('#content').innerHTML:noCatalog?catalogEmpty:'');
+}
+
+function renderTrash() {
+  const products=state.products.filter(p=>p.deletedAt&&matches(p.name,p.category,p.notes));
+  $('#summary').innerHTML='';
+  $('#content').innerHTML=`<h2 class="section-title">Aparelhos</h2>${legacyView(legacy,'arquivados',search)}<h2 class="section-title">Mercadorias e peptídeos</h2>${products.length?`<div class="product-grid">${products.map(p=>`<article class="product-card stock-mercadorias"><div class="product-top">${image(p)}<div><h3 class="product-title">${esc(p.name)}</h3><span class="meta">Excluído em ${esc(new Date(p.deletedAt).toLocaleDateString('pt-BR'))}</span></div></div><p class="help">${balance(state,p.id)} un. guardadas com o histórico. Restaurar devolve o produto ao estoque.</p><div class="card-actions">${action('product-restore',p.id,'↩ Restaurar produto')}</div></article>`).join('')}</div>`:empty('Nenhuma mercadoria na lixeira.')}<p class="help">Anotações e dívidas têm suas próprias lixeiras.</p><div class="card-actions"><button type="button" class="secondary" data-view="anotacoes">Anotações</button><button type="button" class="secondary" data-view="devedores">Devedores</button></div>`;
+}
+
+function productTrash(id,restore=false) {
+  const product=state.products.find(p=>p.id===id);if(!product)return;
+  if(Boolean(product.deletedAt)!==restore)throw new Error('Este produto mudou. Atualize o painel.');
+  openDialog(restore?'Restaurar produto?':'Excluir produto?',`<p class="dialog-summary"><strong>${esc(product.name)}</strong> · ${balance(state,id)} un.</p><p>${restore?'O produto e suas quantidades voltam ao estoque.':'O produto sai do estoque ativo e fica na Lixeira. Você pode restaurá-lo depois.'}</p><p class="help">O histórico permanece guardado. Esta ação não registra venda, recebimento ou cafezinho.</p>`,restore?'Restaurar produto':'Mover para lixeira',async()=>{
+    await save(restore?'puffProdutoRestaurar':'puffProdutoExcluir',{productId:id,expected:product,input:{}});
+    toast(restore?'Produto restaurado.':'Produto guardado na Lixeira do estoque.');
+  });
+}
+
+function shipmentDelivery(id) {
+  const shipment=(state.shipments||[]).find(s=>s.id===id);if(!shipment)return;
+  const delivered=shipment.status==='delivered';
+  openDialog(delivered?'Desfazer entrega?':'Marcar como entregue',`<p class="dialog-summary"><strong>${esc(shipment.client)}</strong><br>${esc(shipment.transport)} · enviado em ${dateBR(shipment.date)}</p>${delivered?'<p>O envio volta a Aguardando entrega.</p>':field('Data da entrega · opcional','deliveredDate','date','',`min="${esc(shipment.date)}" max="${today()}"`)}<p class="help">Confirma apenas a chegada. O estoque, as vendas e o cafezinho permanecem iguais.</p>`,delivered?'Voltar para aguardando':'Confirmar entrega',async data=>{
+    const deliveredDate=delivered?'':String(data.get('deliveredDate')||'');
+    if(deliveredDate&&deliveredDate>today())throw new Error('A entrega confirmada não pode ter uma data futura.');
+    await save('puffEnvio',{shipmentId:id,expected:shipment,input:{status:delivered?'pending':'delivered',deliveredDate}});
+    toast(delivered?'Envio voltou para aguardando.':'Entrega confirmada.');
+  },'envios');
 }
 
 function renderDebts() {
@@ -296,6 +326,7 @@ function closeDialog() { if (!$('#save-dialog').disabled) $('#editor').close(); 
 
 function productForm(id, sourceNote) {
   const product = state.products.find(p=>p.id===id);
+  if(product?.deletedAt)throw new Error('Restaure o produto pela Lixeira antes de editar.');
   openDialog(product ? 'Editar produto' : 'Nova mercadoria',
     field('Nome do produto','name','text',product?.name || '','required maxlength="120" placeholder="Ex.: Kit de acessórios"')+
     '<p class="help">Mercadorias · controle por quantidade. Também aparece na aba Estoque.</p>'+
@@ -377,6 +408,7 @@ function paymentForm(id,paymentId) {
 
 function movementForm(id,type,sourceNote) {
   const p=state.products.find(p=>p.id===id); if(!p)return;
+  if(p.deletedAt)throw new Error('Restaure o produto pela Lixeira antes de movimentar.');
   const titles={entrada:'Registrar entrada',saida:'Registrar saída',transferencia:'Transferir entre locais'};
   const source=locationFilter || 'Depósito SP';
   openDialog(titles[type],`<p class="dialog-summary"><strong>${esc(p.name)}</strong><br><span id="stock-at-location">${balance(state,id,source)} un. em ${esc(source)}</span></p>`+
@@ -416,6 +448,7 @@ function movementCurrencyForm(id) {
 }
 function productDetails(id) {
   const p=state.products.find(p=>p.id===id);if(!p)return;
+  if(p.deletedAt){view='arquivados';$('#editor').close();render();toast('Produto na Lixeira. Restaure para continuar.');return;}
   const movements=state.movements.filter(m=>m.productId===id).slice().reverse();
   openDialog(p.name,`<div class="chips">${locations().map(l=>`<span class="chip">${esc(l)} <b>${balance(state,id,l)} un.</b></span>`).join('')}</div><p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('transferencia',id,'⇄ Transferir entre locais')}</div><h3>Histórico de movimentações</h3><div class="timeline">${movements.map(m=>`<div class="movement"><span class="movement-icon">${m.type==='entrada'?'↓':m.type==='saida'?'↑':'⇄'}</span><div class="movement-main"><strong>${m.type==='entrada'?'Entrada':m.type==='saida'?'Saída':'Transferência'} · ${m.quantity} un.</strong><div class="meta">${esc(m.location)}${m.toLocation?' → '+esc(m.toLocation):''}${m.client?' · '+esc(m.client):''}</div><div class="meta">${dateBR(m.date)}${m.type==='saida'?' · '+moneyHTML(m.quantity*m.unitPriceCents,m,state.settings):''}</div>${m.type==='saida'&&!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda'):''}${m.notes?`<p class="notes">${esc(m.notes)}</p>`:''}</div></div>`).join('') || empty('Nenhuma movimentação. Registre a primeira entrada.')}</div>`,null,null);
 }
@@ -485,10 +518,11 @@ function noteTrash(id,restore=false) {
 }
 function noteStockDestination(note) {
   const draft=noteToShipment(note,today());
-  openDialog('Anotação → Estoque',`<p class="help">Mercadorias por quantidade. Escolha o que deseja registrar.</p><button type="button" class="secondary" data-action="note-to-product" data-id="${esc(note.id)}">+ Cadastrar novo produto</button>${state.products.length?`<hr><label class="field" for="note-product"><span>Produto já cadastrado</span><select id="note-product"><option value="">Escolha o produto</option>${state.products.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><div class="card-actions"><button type="button" class="secondary" data-action="note-to-entry" data-id="${esc(note.id)}">↓ Entrada</button><button type="button" class="primary" data-action="note-to-exit" data-id="${esc(note.id)}">↑ Saída / venda</button></div>`:'<p class="help">Cadastre a mercadoria para começar a controlar sua quantidade.</p>'}`,null,null);
+  const products=state.products.filter(p=>!p.deletedAt);
+  openDialog('Anotação → Estoque',`<p class="help">Mercadorias por quantidade. Escolha o que deseja registrar.</p><button type="button" class="secondary" data-action="note-to-product" data-id="${esc(note.id)}">+ Cadastrar novo produto</button>${products.length?`<hr><label class="field" for="note-product"><span>Produto já cadastrado</span><select id="note-product"><option value="">Escolha o produto</option>${products.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label><div class="card-actions"><button type="button" class="secondary" data-action="note-to-entry" data-id="${esc(note.id)}">↓ Entrada</button><button type="button" class="primary" data-action="note-to-exit" data-id="${esc(note.id)}">↑ Saída / venda</button></div>`:'<p class="help">Cadastre a mercadoria para começar a controlar sua quantidade.</p>'}`,null,null);
   attachNote(note,draft.input.items.length>1?'Esta anotação tem vários itens. Para movimentar o estoque, separe uma anotação por produto. Envios aceita a lista completa.':'Você confere a quantidade e o local na próxima etapa.');
   if(draft.input.items.length>1)document.querySelectorAll('[data-action="note-to-entry"],[data-action="note-to-exit"]').forEach(b=>b.disabled=true);
-  const matching=state.products.filter(p=>draft.input.items.length===1&&normalize(p.name)===normalize(draft.input.items[0].name));
+  const matching=products.filter(p=>draft.input.items.length===1&&normalize(p.name)===normalize(draft.input.items[0].name));
   if(matching.length===1)$('#note-product').value=matching[0].id;
 }
 function openNoteTarget(note) {
@@ -519,7 +553,7 @@ function shipmentEditor(id, sourceNote) {
 }
 $('#search').addEventListener('input',e=>{search=e.target.value;render();});
 $('#shipment-month').addEventListener('change',e=>{if(/^\d{4}-(0[1-9]|1[0-2])$/.test(e.target.value)){shipmentMonth=e.target.value;render();}});
-document.addEventListener('change',e=>{if(e.target.id==='notes-month'){notesMonth=e.target.value;render();}});
+document.addEventListener('change',e=>{if(e.target.id==='shipment-status'){shipmentStatus=e.target.value;render();}if(e.target.id==='notes-month'){notesMonth=e.target.value;render();}});
 $('#exchange-rate').addEventListener('click',exchangeForm);
 $('#location-filter').addEventListener('change',e=>{locationFilter=e.target.value;render();});
 $('#category-filter').addEventListener('change',e=>{categoryFilter=e.target.value;render();});
@@ -543,7 +577,7 @@ document.addEventListener('click',e=>{
   const help=e.target.closest('[data-help]');
   if(help){const topic=helpTopics[help.dataset.help];if(topic){$('#help-title').textContent=topic[0];$('#help-text').textContent=topic[1];$('#context-help').showModal();}return;}
   const nav=e.target.closest('[data-view],[data-section]');
-  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios')shipmentMonth=today().slice(0,7);if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios'){shipmentMonth=today().slice(0,7);shipmentStatus='';}if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
@@ -569,6 +603,8 @@ document.addEventListener('click',e=>{
   if(a==='use-fx'){
     for(const prefix of ['','cost']){const rate=$('#mf-'+(prefix?'costFxRate':'fxRate')),date=$('#mf-'+(prefix?'costFxDate':'fxDate'));if(rate&&date){rate.value=state.settings?.fxRate??'';date.value=state.settings?.fxDate||today();rate.dispatchEvent(new Event('input',{bubbles:true}));}}return;
   }
+  if(a==='shipment-delivery'){shipmentDelivery(id);return;}
+  if(a==='product-delete'||a==='product-restore'){productTrash(id,a==='product-restore');return;}
   if(a==='shipment-new'||a==='shipment-edit'){shipmentEditor(id);return;}
   if(a==='shipment-add-item'){const count=$('#shipment-items').querySelectorAll('.shipment-line').length;if(count>=50)throw new Error('Um envio aceita até 50 mercadorias.');$('#shipment-items').insertAdjacentHTML('beforeend',shipmentItemFields({},count));$('#dialog-fields').dispatchEvent(new Event('input'));return;}
   if(a==='shipment-remove-item'){if($('#shipment-items').querySelectorAll('.shipment-line').length<=1)throw new Error('Mantenha pelo menos uma mercadoria no envio.');b.closest('.shipment-line').remove();$('#dialog-fields').dispatchEvent(new Event('input'));return;}
@@ -579,8 +615,8 @@ document.addEventListener('click',e=>{
     const kind=a.slice(7);
     if(['edit','sell','local','expense-edit'].includes(kind)){originalForm(kind,Number(id));return;}
     const request=kind==='paid'?legacyPaymentAction(legacy,id):kind==='delete'?legacyDeleteAction(legacy,id):kind==='restore'?legacyRestoreAction(legacy,id):legacyExpenseDeleteAction(legacy,id);
-    const title=kind==='paid'?(request.payload.valor?'Registrar recebimento':'Voltar para a receber'):kind==='delete'?'Arquivar aparelho':kind==='restore'?'Restaurar aparelho':'Excluir gasto';
-    openDialog(title,kind==='delete'?'<p>O aparelho ficará em Arquivados e poderá ser restaurado.</p>':kind==='restore'?'<p>O aparelho voltará ao estoque, com os dados que tinha ao ser arquivado.</p>':kind==='expense-delete'?'<p>Este gasto será excluído da planilha. Exporte um backup se quiser guardar uma cópia.</p>':'<p>Confirme a atualização do pagamento deste aparelho.</p>','Confirmar',async()=>save(request.action,request.payload,kind==='paid'&&request.payload.valor?'Pagamento recebido':''));return;
+    const title=kind==='paid'?(request.payload.valor?'Registrar recebimento':'Voltar para a receber'):kind==='delete'?'Excluir aparelho?':kind==='restore'?'Restaurar aparelho':'Excluir gasto';
+    openDialog(title,kind==='delete'?'<p>O aparelho ficará na Lixeira do estoque e poderá ser restaurado. Esta ação não registra uma venda nem acrescenta cafezinho.</p>':kind==='restore'?'<p>O aparelho voltará ao estoque, com os dados que tinha ao ser arquivado.</p>':kind==='expense-delete'?'<p>Este gasto será excluído da planilha. Exporte um backup se quiser guardar uma cópia.</p>':'<p>Confirme a atualização do pagamento deste aparelho.</p>','Confirmar',async()=>save(request.action,request.payload,kind==='paid'&&request.payload.valor?'Pagamento recebido':''));return;
   }
   if(a==='filter-location'){view='estoque';stockFilter='';categoryFilter='';search='';locationFilter=location;$('#search').value='';$('#category-filter').value='';$('#location-filter').value=location;render();return;}
   if(['entrada','saida','transferencia'].includes(a)){$('#editor').close();movementForm(id,a);}

@@ -110,6 +110,7 @@ export function analyze(legacyData = {}, state = {}, options = {}) {
     if (!item || typeof item.id !== 'string' || (category && classifyCategory(item) !== category)) continue;
     if (products.has(item.id)) { warnings.duplicateRecords++; continue; }
     const product = group(`product:${item.id}`, item, 'mercadorias');
+    product.deleted = Boolean(item.deletedAt);
     product.currentCostCents = cents(item.costCents);
     product.costCurrency = currencyOf(item, 'costCurrency');
     product.costFxRate = item.costFxRate;
@@ -177,6 +178,7 @@ export function analyze(legacyData = {}, state = {}, options = {}) {
   const within = (sale, days) => sale.date && daysSince(today, sale.date) >= 0 && daysSince(today, sale.date) < days;
   const windows = { days30: summarize(sales.filter(sale => within(sale, 30))), days90: summarize(sales.filter(sale => within(sale, 90))) };
   const results = [...groups.values()].map(product => {
+    if(product.deleted)product.stockUnits=0;
     if (product.stockUnits < 0) warnings.negativeStockProducts++;
     const first = product.dates.length ? product.dates.reduce((a, b) => a < b ? a : b) : null;
     const historyDays = first ? Math.min(90, daysSince(today, first) + 1) : 0;
@@ -190,7 +192,7 @@ export function analyze(legacyData = {}, state = {}, options = {}) {
     }
     const oldestStockDate = product.stockDates.length ? product.stockDates.reduce((a, b) => a < b ? a : b) : null;
     const stockAgeDays = product.source === 'principal' && oldestStockDate ? daysSince(today, oldestStockDate) : null;
-    const eligible = historyDays >= 14 && recent.length >= 3 && product.stockUnits >= 0;
+    const eligible = !product.deleted && historyDays >= 14 && recent.length >= 3 && product.stockUnits >= 0;
     const dailyUnits = eligible ? recentTotals.units / historyDays : null;
     const forecastUnits30 = dailyUnits == null ? null : dailyUnits * 30;
     const coverageDays = dailyUnits > 0 ? available / dailyUnits : null;
@@ -203,7 +205,7 @@ export function analyze(legacyData = {}, state = {}, options = {}) {
   });
   const ranking = results.filter(product => product.last90.units > 0).sort((a, b) => b.last90.units - a.last90.units || (!a.last90.revenueUnknownUnits && !b.last90.revenueUnknownUnits ? b.last90.revenueCents - a.last90.revenueCents : 0) || a.name.localeCompare(b.name, 'pt-BR'));
   const forecastProducts = results.filter(product => product.forecastUnits30 != null);
-  const forecast = { products: forecastProducts, units30: forecastProducts.length ? forecastProducts.reduce((sum, product) => sum + product.forecastUnits30, 0) : null, eligibleProducts: forecastProducts.length, excludedProducts: results.length - forecastProducts.length };
+  const forecast = { products: forecastProducts, units30: forecastProducts.length ? forecastProducts.reduce((sum, product) => sum + product.forecastUnits30, 0) : null, eligibleProducts: forecastProducts.length, excludedProducts: results.filter(product=>!product.deleted).length - forecastProducts.length };
   const insights = [];
   const replenish = forecastProducts.filter(product => product.replenishUnits > 0).sort((a, b) => (a.coverageDays ?? Infinity) - (b.coverageDays ?? Infinity));
   const idle = results.filter(product => product.stockUnits > 0 && product.idleDays != null && product.idleDays >= 30).sort((a, b) => b.idleDays - a.idleDays);

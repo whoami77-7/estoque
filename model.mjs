@@ -178,6 +178,7 @@ export function addProduct(state, input) {
 export function updateProduct(state, id, input) {
   const product = state.products.find(item => item.id === id);
   if (!product) throw new Error('Produto não encontrado.');
+  if (product.deletedAt !== undefined) throw new Error('Restaure o produto antes de editar.');
   const next = { ...product, ...input };
   if (currencyOf(product) && !currencyOf(next)) throw new Error('Escolha uma moeda para preservar a identificação do preço.');
   if (currencyOf(product, 'costCurrency') && next.costCents != null && !currencyOf(next, 'costCurrency')) throw new Error('Escolha a moeda do custo.');
@@ -185,6 +186,12 @@ export function updateProduct(state, id, input) {
   if (input.costCents != null && input.costCents !== product.costCents) currencyFields(next, true, 'cost');
   Object.assign(product, catalog(next, false, true));
   return product;
+}
+
+export function setProductDeleted(state, id, deleted) {
+  const product = state.products.find(item => item.id === id);
+  if (!product) throw new Error('Produto não encontrado.');
+  return setDeleted(product, deleted, 'Produto');
 }
 
 export function addDebt(state, input) {
@@ -266,6 +273,7 @@ export function setPaymentDeleted(state, debtId, paymentId, deleted) {
 }
 
 export function addMovement(state, productId, input) {
+  if (state.products.find(product => product.id === productId)?.deletedAt !== undefined) throw new Error('Restaure o produto antes de movimentar o estoque.');
   const movement = { id: crypto.randomUUID(), ...movementFields(state, productId, input, true), createdAt: new Date().toISOString() };
   state.movements.push(movement);
   return movement;
@@ -273,8 +281,14 @@ export function addMovement(state, productId, input) {
 
 function shipmentFields(input) {
   if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new Error('Inclua de 1 a 50 mercadorias no envio.');
+  const status = input.status === undefined ? 'pending' : input.status;
+  if (!['pending', 'delivered'].includes(status)) throw new Error('Selecione uma situação válida para o envio.');
+  const sentDate = date(input.date, 'Data do envio');
+  const deliveredDate = input.deliveredDate === undefined || input.deliveredDate === '' ? '' : date(input.deliveredDate, 'Data da entrega');
+  if (deliveredDate && status !== 'delivered') throw new Error('Marque o envio como entregue antes de informar a data da entrega.');
+  if (deliveredDate && deliveredDate < sentDate) throw new Error('A entrega não pode ser anterior ao envio.');
   return { transport: text(input.transport, 'Transportadora', 120, true), client: text(input.client, 'Cliente', 120, true),
-    date: date(input.date, 'Data do envio'), notes: text(input.notes, 'Observações'),
+    date: sentDate, status, deliveredDate, notes: text(input.notes, 'Observações'),
     items: input.items.map(item => ({ name: text(item?.name, 'Mercadoria', 120, true), quantity: integer(item?.quantity, 'Quantidade', 1, 1000000) })) };
 }
 
@@ -332,7 +346,7 @@ export function addShipment(state, input) {
 export function updateShipment(state, id, input) {
   const shipment = (state.shipments || []).find(item => item.id === id);
   if (!shipment) throw new Error('Envio não encontrado.');
-  Object.assign(shipment, shipmentFields({ ...shipment, ...input }), { updatedAt: new Date().toISOString() });
+  Object.assign(shipment, shipmentFields({ ...shipment, ...input }), { updatedAt: revisedAt(shipment) });
   return shipment;
 }
 
@@ -350,7 +364,7 @@ export function validateState(state) {
       throw new Error('Registro sem data de criação válida.');
     }
   }
-  state.products.forEach(product => { identify(product); catalog(product); });
+  state.products.forEach(product => { identify(product); validateRevision(product); catalog(product); });
   // ponytail: replay O(n²) serve à prévia local; históricos grandes devem acumular saldos em um Map.
   const ledger = { products: state.products, movements: [] };
   for (const movement of state.movements) {

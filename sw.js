@@ -1,4 +1,4 @@
-const CACHE = 'puff-v10-20261007-ajuda';
+const CACHE = 'puff-v11-20261008-entregas-lixeira';
 const SHELL = ['./','index.html','styles.css','app.js','model.mjs','money.mjs','currency-ui.mjs','shipments.mjs','notes.mjs','legacy.mjs','analytics.mjs','feedback.mjs','icon.svg','manifest.webmanifest','legacy.html'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));});

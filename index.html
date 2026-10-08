@@ -34,7 +34,7 @@
       <button type="button" data-section="envios">🚚 Envios</button>
       <button type="button" data-section="financeiro">💰 Financeiro</button>
       <button type="button" data-section="anotacoes" class="notes-shortcut">📝 Anotações</button>
-      <details class="nav-more" id="more-sections"><summary><span aria-hidden="true">☰</span> Mais opções <span class="more-chevron" aria-hidden="true">⌄</span></summary><div class="more-options"><button type="button" data-view="anotacoes">📝 Anotações salvas</button><button type="button" data-view="clientes">👥 Clientes</button><button type="button" data-view="locais">📍 Locais</button><button type="button" data-view="decisao" class="decision-tab">✨ Tomada de decisão</button></div></details>
+      <details class="nav-more" id="more-sections"><summary><span aria-hidden="true">☰</span> Mais opções <span class="more-chevron" aria-hidden="true">⌄</span></summary><div class="more-options"><button type="button" data-view="anotacoes">📝 Anotações salvas</button><button type="button" data-view="arquivados">🗑 Lixeira do estoque</button><button type="button" data-view="clientes">👥 Clientes</button><button type="button" data-view="locais">📍 Locais</button><button type="button" data-view="decisao" class="decision-tab">✨ Tomada de decisão</button></div></details>
     </nav>
     <nav class="section-tabs" id="section-tabs" aria-label="Opções da seção"></nav>
 
@@ -70,11 +70,12 @@
         <button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>
         </div></details>
       </div>
+      <button id="stock-trash" type="button" class="ghost stock-trash" data-view="arquivados" hidden>🗑 Lixeira do estoque</button>
       <div id="active-filters" class="active-filters" role="status" hidden></div>
 
       <div id="content" tabindex="-1"></div>
     </main>
-    <footer class="app-footer"><details class="footer-settings"><summary>Configurações e histórico</summary><div class="footer-tools"><button type="button" class="ghost" data-view="arquivados">Arquivados</button><button id="export-backup" class="ghost" type="button">Baixar backup</button><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div></details><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p></footer>
+    <footer class="app-footer"><details class="footer-settings"><summary>Configurações e histórico</summary><div class="footer-tools"><button type="button" class="ghost" data-view="arquivados">Lixeira do estoque</button><button id="export-backup" class="ghost" type="button">Baixar backup</button><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div></details><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p></footer>
   </div>
 
   <dialog id="editor" aria-labelledby="dialog-title">
