@@ -118,6 +118,7 @@ function movementFields(state, productId, input, requireCurrency = false) {
   return {
     ...(requireCurrency ? transactionCurrencyFields : currencyFields)(input, requireCurrency), productId, type: input.type, quantity, location: source, toLocation,
     client: text(input.client, 'Cliente', 120, input.type === 'saida'), unitPriceCents,
+    deliveryAddress: text(input.deliveryAddress, 'Endereço de entrega', 500),
     date: date(input.date, 'Data da movimentação'), notes: text(input.notes, 'Observações'),
   };
 }
@@ -297,6 +298,7 @@ function shipmentFields(input) {
   if (deliveredDate && status !== 'delivered') throw new Error('Marque o envio como entregue antes de informar a data da entrega.');
   if (deliveredDate && deliveredDate < sentDate) throw new Error('A entrega não pode ser anterior ao envio.');
   return { transport: text(input.transport, 'Transportadora', 120, true), client: text(input.client, 'Cliente', 120, true),
+    deliveryAddress: text(input.deliveryAddress, 'Endereço de entrega', 500),
     date: sentDate, status, deliveredDate, ...shipmentTracking(input), notes: text(input.notes, 'Observações'),
     items: input.items.map(item => ({ name: text(item?.name, 'Mercadoria', 120, true), quantity: integer(item?.quantity, 'Quantidade', 1, 1000000) })) };
 }

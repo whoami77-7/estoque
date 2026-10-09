@@ -3,7 +3,7 @@ import { legacyCards, legacyView, legacyForm, legacyPaymentAction, legacyDeleteA
 import { classifyCategory, decisionView } from './analytics.mjs';
 import { setupFeedback, unlockSound, reward, setAlissonBalance } from './feedback.mjs';
 import { currencyOf, formatMoney, convertCents } from './money.mjs';
-import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm } from './currency-ui.mjs';
+import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm, deliveryAddressField, deliveryAddressHTML } from './currency-ui.mjs';
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
 import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
 
@@ -228,8 +228,8 @@ function filteredLegacy(){return ['estoque','mercadorias','vendas','receber'].in
 function extraView(){
   const products=state.products.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter), ids=new Set(products.map(p=>p.id));
   if(view==='vendas'){
-    const sales=state.movements.filter(m=>m.type==='saida'&&ids.has(m.productId)&&matches(m.client,m.notes,state.products.find(p=>p.id===m.productId)?.name)).slice().reverse();
-    return sales.length?`<h2 class="section-title">Saídas de mercadorias</h2><div class="debt-list">${sales.map(m=>`<article class="debt-card"><h3>${esc(state.products.find(p=>p.id===m.productId)?.name)}</h3><div class="client-location"><span class="context-chip">Cliente <strong>${esc(m.client)}</strong></span><span class="context-chip">Local <strong>${esc(m.location)}</strong></span></div><p>${m.quantity} un. · ${moneyHTML(m.quantity*m.unitPriceCents,m,state.settings)} · ${dateBR(m.date)}</p>${!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda','secondary'):''}</article>`).join('')}</div>`:'';
+    const sales=state.movements.filter(m=>m.type==='saida'&&ids.has(m.productId)&&matches(m.client,m.deliveryAddress,m.notes,state.products.find(p=>p.id===m.productId)?.name)).slice().reverse();
+    return sales.length?`<h2 class="section-title">Saídas de mercadorias</h2><div class="debt-list">${sales.map(m=>`<article class="debt-card"><h3>${esc(state.products.find(p=>p.id===m.productId)?.name)}</h3><div class="client-location"><span class="context-chip">Cliente <strong>${esc(m.client)}</strong></span><span class="context-chip">Local <strong>${esc(m.location)}</strong></span></div><p>${m.quantity} un. · ${moneyHTML(m.quantity*m.unitPriceCents,m,state.settings)} · ${dateBR(m.date)}</p>${deliveryAddressHTML(m.deliveryAddress)}<div class="card-actions">${action('movement-address',m.id,'✎ Endereço de entrega','secondary')}${!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda','secondary'):''}</div></article>`).join('')}</div>`:'';
   }
   if(view==='receber')return `<div class="module-note"><strong>Caderneta de devedores</strong>${moneyTotals(state.debts.filter(d=>!d.deletedAt),debtBalance)}<p>Pagamentos parciais e dívidas avulsas ficam na aba Devedores. Os totais de reais e dólares são separados.</p><button type="button" data-action="open-debts" class="secondary">Ver devedores</button></div>`;
   if(view==='clientes'){
@@ -424,11 +424,11 @@ function movementForm(id,type,sourceNote) {
   openDialog(titles[type],`<p class="dialog-summary"><strong>${esc(p.name)}</strong><br><span id="stock-at-location">${balance(state,id,source)} un. em ${esc(source)}</span></p>`+
     `<div class="form-grid">${field('Quantidade','quantity','number',1,'required min="1" max="1000000" step="1"')}<label class="field" for="f-location"><span>${type==='transferencia'?'Local de origem':'Local'}</span><select name="location" id="f-location">${locationOptions(source)}</select></label></div>`+
     (type==='transferencia'?`<label class="field" for="f-toLocation"><span>Local de destino</span><select id="f-toLocation" name="toLocation">${locationOptions(source==='Loja'?'Depósito SP':'Loja')}</select></label>`:'')+
-    (type==='saida'?currencyForm({currency:p.currency,...state.settings},{reference:state.settings})+`<div class="form-grid">${field('Cliente','client','text','','required maxlength="120" placeholder="Nome de quem recebeu"')}${field('Valor por unidade','unitPrice','text',(p.priceCents/100).toFixed(2),'required inputmode="decimal"')}</div><p class="movement-total" id="movement-total"></p><label class="check-field"><input type="checkbox" name="createDebt"> Anotar esta venda em Devedores</label><p class="help">Marque quando o pagamento ficar para depois. A moeda e o valor desta saída entram na caderneta.</p>`:'')+
+    (type==='saida'?currencyForm({currency:p.currency,...state.settings},{reference:state.settings})+`<div class="form-grid">${field('Cliente','client','text','','required maxlength="120" placeholder="Nome de quem recebeu"')}${field('Valor por unidade','unitPrice','text',(p.priceCents/100).toFixed(2),'required inputmode="decimal"')}</div>${deliveryAddressField()}<p class="movement-total" id="movement-total"></p><label class="check-field"><input type="checkbox" name="createDebt"> Anotar esta venda em Devedores</label><p class="help">Marque quando o pagamento ficar para depois. A moeda e o valor desta saída entram na caderneta.</p>`:'')+
     field('Data','date','date',today(),'required')+notes(),'Salvar movimentação',async data=>{
       const quantity=Number(data.get('quantity')),unitPriceCents=type==='saida'?cents(data.get('unitPrice')):p.priceCents;
       const currency=type==='saida'?readCurrencyForm(data):{currency:p.currency,fxRate:p.fxRate,fxDate:p.fxDate};
-      await save('puffMovimento',{productId:id,...noteSource(sourceNote),input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
+      await save('puffMovimento',{productId:id,...noteSource(sourceNote),input:{type,quantity,location:data.get('location'),toLocation:data.get('toLocation')||'',client:data.get('client')||'',deliveryAddress:data.get('deliveryAddress')||'',unitPriceCents,...currency,date:data.get('date'),notes:data.get('notes')},createDebt:type==='saida'&&Boolean(data.get('createDebt'))},type==='saida'?`${quantity} ${quantity===1?'unidade registrada':'unidades registradas'}`:'');toast('Movimentação registrada.');
     }, type);
   if(sourceNote){const draft=noteToShipment(sourceNote,today()).input;$('#f-quantity').value=draft.items.length===1?draft.items[0].quantity:'';$('#f-date').value=draft.date||today();$('#f-notes').value=draft.notes;if(type==='saida')$('#f-client').value=draft.client;attachNote(sourceNote,'Confira produto, quantidade e local. Ao confirmar, esta operação altera o estoque.');}
   $('#f-location').addEventListener('change',()=>{$('#stock-at-location').textContent=`${balance(state,id,$('#f-location').value)} un. em ${$('#f-location').value}`;});
@@ -456,11 +456,17 @@ function movementCurrencyForm(id) {
   const movement=state.movements.find(m=>m.id===id);if(!movement)return;
   openDialog('Confirmar moeda da saída',`<p class="dialog-summary">${esc(movement.client)} · ${dateBR(movement.date)}<br>${movement.quantity} unidades · ${money(movement.quantity*movement.unitPriceCents,movement.currency)}</p>`+currencyForm(movement,{reference:state.settings})+'<p class="help">O número registrado permanece igual; esta ação identifica a moeda do lançamento antigo.</p>','Confirmar moeda',async data=>save('puffMovimentoEdit',{movementId:id,expected:movement,input:readCurrencyForm(data)}));
 }
+function movementAddressForm(id) {
+  const movement=state.movements.find(m=>m.id===id&&m.type==='saida');if(!movement)return;
+  openDialog('Endereço de entrega',`<p class="dialog-summary">${esc(movement.client)} · ${dateBR(movement.date)}</p>`+deliveryAddressField(movement.deliveryAddress),'Salvar endereço',async data=>{
+    await save('puffMovimentoEdit',{movementId:id,expected:movement,input:{deliveryAddress:data.get('deliveryAddress')}});toast('Endereço atualizado.');
+  });
+}
 function productDetails(id) {
   const p=state.products.find(p=>p.id===id);if(!p)return;
   if(p.deletedAt){view='arquivados';$('#editor').close();render();toast('Produto na Lixeira. Restaure para continuar.');return;}
   const movements=state.movements.filter(m=>m.productId===id).slice().reverse();
-  openDialog(p.name,`<div class="chips">${locations().map(l=>`<span class="chip">${esc(l)} <b>${balance(state,id,l)} un.</b></span>`).join('')}</div><p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('transferencia',id,'⇄ Transferir entre locais')}</div><h3>Histórico de movimentações</h3><div class="timeline">${movements.map(m=>`<div class="movement"><span class="movement-icon">${m.type==='entrada'?'↓':m.type==='saida'?'↑':'⇄'}</span><div class="movement-main"><strong>${m.type==='entrada'?'Entrada':m.type==='saida'?'Saída':'Transferência'} · ${m.quantity} un.</strong><div class="meta">${esc(m.location)}${m.toLocation?' → '+esc(m.toLocation):''}${m.client?' · '+esc(m.client):''}</div><div class="meta">${dateBR(m.date)}${m.type==='saida'?' · '+moneyHTML(m.quantity*m.unitPriceCents,m,state.settings):''}</div>${m.type==='saida'&&!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda'):''}${m.notes?`<p class="notes">${esc(m.notes)}</p>`:''}</div></div>`).join('') || empty('Nenhuma movimentação. Registre a primeira entrada.')}</div>`,null,null);
+  openDialog(p.name,`<div class="chips">${locations().map(l=>`<span class="chip">${esc(l)} <b>${balance(state,id,l)} un.</b></span>`).join('')}</div><p class="notes">${esc(p.notes)}</p><div class="card-actions">${action('transferencia',id,'⇄ Transferir entre locais')}</div><h3>Histórico de movimentações</h3><div class="timeline">${movements.map(m=>`<div class="movement"><span class="movement-icon">${m.type==='entrada'?'↓':m.type==='saida'?'↑':'⇄'}</span><div class="movement-main"><strong>${m.type==='entrada'?'Entrada':m.type==='saida'?'Saída':'Transferência'} · ${m.quantity} un.</strong><div class="meta">${esc(m.location)}${m.toLocation?' → '+esc(m.toLocation):''}${m.client?' · '+esc(m.client):''}</div><div class="meta">${dateBR(m.date)}${m.type==='saida'?' · '+moneyHTML(m.quantity*m.unitPriceCents,m,state.settings):''}</div>${m.type==='saida'?deliveryAddressHTML(m.deliveryAddress)+action('movement-address',m.id,'✎ Endereço de entrega'):''}${m.type==='saida'&&!currencyOf(m)?action('movement-currency',m.id,'Confirmar moeda'):''}${m.notes?`<p class="notes">${esc(m.notes)}</p>`:''}</div></div>`).join('') || empty('Nenhuma movimentação. Registre a primeira entrada.')}</div>`,null,null);
 }
 function debtDetails(id) {
   const d=state.debts.find(d=>d.id===id);if(!d)return;
@@ -642,6 +648,7 @@ document.addEventListener('click',e=>{
   else if(a==='details-debt')debtDetails(id);
   else if(a==='debt-currency')debtCurrencyForm(id);
   else if(a==='movement-currency')movementCurrencyForm(id);
+  else if(a==='movement-address')movementAddressForm(id);
   } catch(error){toast(error.message);}
 });
 $('#close-dialog').addEventListener('click',closeDialog);$('#cancel-dialog').addEventListener('click',closeDialog);

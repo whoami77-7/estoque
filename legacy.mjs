@@ -1,5 +1,5 @@
 import { classifyCategory } from './analytics.mjs';
-import { currencyForm, readCurrencyForm, moneyHTML, moneyTotals } from './currency-ui.mjs';
+import { currencyForm, readCurrencyForm, moneyHTML, moneyTotals, deliveryAddressField, deliveryAddressHTML } from './currency-ui.mjs';
 import { currencyOf, convertCents, formatMoney } from './money.mjs';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -48,6 +48,7 @@ function itemCard(item, reference) {
   return `<article class="product-card stock-principal">
     <div class="product-top">${photo}<div><span class="stock-badge principal">Estoque principal</span><h2 class="product-title">${esc(item.modelo || 'Sem modelo')}</h2><span class="badge ${isSold ? 'good' : normalized(item.situacao) === 'pendente' ? 'warning' : ''}">${esc(item.situacao || 'Sem situação')}</span></div><button type="button" class="ghost edit-product" data-action="legacy-edit" data-id="${esc(item.row)}" aria-label="Editar ${esc(item.modelo || 'aparelho')}">${pencil}</button></div>
     <div class="client-location"><span class="context-chip"><span class="context-label">Cliente</span><strong>${esc(item.cliente || 'Sem cliente')}</strong></span><span class="context-chip"><span class="context-label">Local</span><strong>${esc(item.local || 'Sem local')}</strong></span></div>
+    ${isSold ? deliveryAddressHTML(item.deliveryAddress) : ''}
     <div class="card-values">${amount(isSold ? 'Venda' : 'Venda pretendida', numericCents(item.venda), item, reference)}${isSold ? `<span class="badge ${isPaid ? 'good' : 'warning'}">${isPaid ? 'Recebido' : 'A receber'}</span>` : ''}</div>
     <div class="card-actions">${isSold ? button('legacy-paid', item.row, isPaid ? 'Marcar a receber' : 'Marcar recebido', 'primary') : button('legacy-sell', item.row, 'Vender', 'primary')}${!isSold ? button('legacy-delete', item.row, '🗑 Excluir', 'ghost danger') : ''}</div>
     <details class="card-details"><summary>Detalhes e custos</summary>
@@ -62,7 +63,7 @@ function itemCard(item, reference) {
 export function legacyCards(data, { view = 'estoque', search = '', location = '' } = {}) {
   const items = (data.itens || []).filter(item => {
     const inView = view === 'vendas' ? sold(item) : view === 'receber' ? sold(item) && !received(item) : !sold(item);
-    return inView && (!location || item.local === location) && matches(search, item.modelo, item.cliente, item.local, item.notes);
+    return inView && (!location || item.local === location) && matches(search, item.modelo, item.cliente, item.local, item.notes, item.deliveryAddress);
   });
   if (view === 'vendas') items.sort((a, b) => String(b.dataVenda || '').localeCompare(String(a.dataVenda || '')));
   return items.length ? `<div class="product-grid">${items.map(item => itemCard(item, data.currencyReference || {})).join('')}</div>` : empty(view === 'receber' ? 'Nenhum aparelho com pagamento pendente.' : 'Nenhum aparelho encontrado.');
@@ -71,8 +72,8 @@ export function legacyCards(data, { view = 'estoque', search = '', location = ''
 export function legacyView(data, view, search = '') {
   if (['estoque', 'vendas', 'receber'].includes(view)) return legacyCards(data, { view, search });
   if (view === 'arquivados') {
-    const items = (data.excluidos || []).filter(item => matches(search, item.modelo, item.cliente, item.local, item.notes)).slice().sort((a, b) => String(b.excluidoEm || '').localeCompare(String(a.excluidoEm || '')) || Number(b.rowHist) - Number(a.rowHist));
-    return items.length ? `<div class="debt-list">${items.map(item => `<details class="card-details debt-card"><summary><strong>${esc(item.modelo || 'Sem modelo')}</strong> <span class="meta">· Excluído em ${esc(dateBR(item.excluidoEm))}</span></summary><div class="client-location"><span class="context-chip"><span class="context-label">Cliente</span><strong>${esc(item.cliente || 'Sem cliente')}</strong></span><span class="context-chip"><span class="context-label">Local</span><strong>${esc(item.local || 'Sem local')}</strong></span></div><div class="card-values">${amount('Compra', numericCents(item.compra), item, data.currencyReference || {}, 'costCurrency')}${amount(sold(item) ? 'Venda' : 'Venda pretendida', numericCents(item.venda), item, data.currencyReference || {})}</div><p class="meta">Situação: ${esc(item.situacao || 'Não informada')} · Entrada: ${esc(dateBR(item.dataPasse))}${item.dataVenda ? ` · Venda: ${esc(dateBR(item.dataVenda))}` : ''}</p>${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ''}<div class="card-actions">${button('legacy-restore', item.rowHist, 'Restaurar item', 'secondary')}</div></details>`).join('')}</div>` : empty('Nenhum aparelho na lixeira.');
+    const items = (data.excluidos || []).filter(item => matches(search, item.modelo, item.cliente, item.local, item.notes, item.deliveryAddress)).slice().sort((a, b) => String(b.excluidoEm || '').localeCompare(String(a.excluidoEm || '')) || Number(b.rowHist) - Number(a.rowHist));
+    return items.length ? `<div class="debt-list">${items.map(item => `<details class="card-details debt-card"><summary><strong>${esc(item.modelo || 'Sem modelo')}</strong> <span class="meta">· Excluído em ${esc(dateBR(item.excluidoEm))}</span></summary><div class="client-location"><span class="context-chip"><span class="context-label">Cliente</span><strong>${esc(item.cliente || 'Sem cliente')}</strong></span><span class="context-chip"><span class="context-label">Local</span><strong>${esc(item.local || 'Sem local')}</strong></span></div><div class="card-values">${amount('Compra', numericCents(item.compra), item, data.currencyReference || {}, 'costCurrency')}${amount(sold(item) ? 'Venda' : 'Venda pretendida', numericCents(item.venda), item, data.currencyReference || {})}</div><p class="meta">Situação: ${esc(item.situacao || 'Não informada')} · Entrada: ${esc(dateBR(item.dataPasse))}${item.dataVenda ? ` · Venda: ${esc(dateBR(item.dataVenda))}` : ''}</p>${deliveryAddressHTML(item.deliveryAddress)}${item.notes ? `<p class="notes">${esc(item.notes)}</p>` : ''}<div class="card-actions">${button('legacy-restore', item.rowHist, 'Restaurar item', 'secondary')}</div></details>`).join('')}</div>` : empty('Nenhum aparelho na lixeira.');
   }
   if (view === 'gastos') {
     const expenses = (data.gastos || []).filter(item => matches(search, item.descricao, item.aparelho));
@@ -154,7 +155,7 @@ export function legacyForm(data, kind, row, today) {
   if (kind === 'edit') {
     return {
       title: 'Editar aparelho', submitLabel: 'Salvar alterações',
-      html: field('Modelo', 'modelo', item.modelo, 'required maxlength="120"') + `<label class="field" for="lf-category"><span>Categoria</span><select id="lf-category" name="category" required>${CATEGORIES.map(category => `<option ${category === categoryFor(item) ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>` + grid(field('Cliente', 'cliente', item.cliente, 'maxlength="120"') + localField(data, item.local)) + currencyForm(item, { cost: true, reference }) + grid(priceField('Valor de compra', 'compra', moneyValue(item.compra)) + priceField('Valor de venda', 'venda', moneyValue(item.venda))) +
+      html: field('Modelo', 'modelo', item.modelo, 'required maxlength="120"') + `<label class="field" for="lf-category"><span>Categoria</span><select id="lf-category" name="category" required>${CATEGORIES.map(category => `<option ${category === categoryFor(item) ? 'selected' : ''}>${esc(category)}</option>`).join('')}</select></label>` + grid(field('Cliente', 'cliente', item.cliente, 'maxlength="120"') + localField(data, item.local)) + deliveryAddressField(item.deliveryAddress) + currencyForm(item, { cost: true, reference }) + grid(priceField('Valor de compra', 'compra', moneyValue(item.compra)) + priceField('Valor de venda', 'venda', moneyValue(item.venda))) +
         '<label class="field" for="lf-photo"><span>Foto do aparelho <small>opcional</small></span><input id="lf-photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp"><small class="help">JPG, PNG ou WebP de até 5 MB. A foto será redimensionada automaticamente.</small></label>' + (item.photo ? '<label class="check-field"><input name="removePhoto" type="checkbox"> Remover foto atual</label>' : '') +
         `<label class="field" for="lf-notes"><span>Observações</span><textarea id="lf-notes" name="notes" rows="3" maxlength="1000">${esc(item.notes)}</textarea></label><p class="help">Situação, datas e recebimento ficam preservados nesta edição.</p>`,
       build(form) {
@@ -165,6 +166,7 @@ export function legacyForm(data, kind, row, today) {
         return { action: 'puffLegacyEdit', payload: { row: itemRow, expected: structuredClone(item), input: {
           category, ...readCurrencyForm(form, { cost: true }),
           modelo: readText(form, 'modelo', 'Modelo', true), cliente: readText(form, 'cliente', 'Cliente'), local: readText(form, 'local', 'Local'),
+          deliveryAddress: form.has('deliveryAddress') ? readText(form, 'deliveryAddress', 'Endereço de entrega', false, 500) : (item.deliveryAddress || ''),
           compra: amountValue(form, 'compra', 'Compra'), venda: amountValue(form, 'venda', 'Venda'), notes: readText(form, 'notes', 'Observações', false, 1000), photo: form.get('removePhoto') ? '' : (item.photo || ''),
         } } };
       },
@@ -186,11 +188,11 @@ export function legacyForm(data, kind, row, today) {
     const clients = [...new Set((data.clientes || []).map(client => client.nome).filter(Boolean))];
     return {
       title: 'Registrar venda', submitLabel: 'Confirmar venda',
-      html: `<p class="dialog-summary"><strong>${esc(item.modelo)}</strong><br>${esc(item.local || 'Sem local')}</p>` + field('Cliente', 'cliente', item.cliente, 'required maxlength="120" list="lf-clientes"') + `<datalist id="lf-clientes">${clients.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>` + currencyForm(item, { reference }) + grid(priceField('Valor da venda', 'valorVenda', moneyValue(item.venda)) + dateField('Data da venda', 'dataVenda', today, item.dataPasse ? `min="${esc(item.dataPasse)}"` : '')) + '<label class="check-field"><input type="checkbox" name="pagamento"> Já recebi o pagamento</label>' + grid(field('Gasto desta venda (opcional)', 'gastoDesc', '', 'maxlength="120" placeholder="Ex.: frete"') + priceField('Valor do gasto · mesma moeda da venda', 'gastoValor', '', false)) + '<p class="help">Se o gasto estiver em outra moeda, registre-o separadamente em Gastos. A moeda e o câmbio da compra ficam preservados.</p>',
+      html: `<p class="dialog-summary"><strong>${esc(item.modelo)}</strong><br>${esc(item.local || 'Sem local')}</p>` + field('Cliente', 'cliente', item.cliente, 'required maxlength="120" list="lf-clientes"') + `<datalist id="lf-clientes">${clients.map(name => `<option value="${esc(name)}"></option>`).join('')}</datalist>` + deliveryAddressField(item.deliveryAddress) + currencyForm(item, { reference }) + grid(priceField('Valor da venda', 'valorVenda', moneyValue(item.venda)) + dateField('Data da venda', 'dataVenda', today, item.dataPasse ? `min="${esc(item.dataPasse)}"` : '')) + '<label class="check-field"><input type="checkbox" name="pagamento"> Já recebi o pagamento</label>',
       build(form) {
         const dataVenda = readDate(form, 'dataVenda', 'Data da venda');
         if (item.dataPasse && dataVenda < item.dataPasse) throw new Error('A venda não pode ser anterior à entrada do aparelho.');
-        return { action: 'vender', payload: { ...readCurrencyForm(form), row: itemRow, expected: structuredClone(item), cliente: readText(form, 'cliente', 'Cliente', true), valorVenda: amountValue(form, 'valorVenda', 'Valor da venda', false), dataVenda, pagamento: Boolean(form.get('pagamento')), gastoValor: amountValue(form, 'gastoValor', 'Gasto', true, true), gastoDesc: readText(form, 'gastoDesc', 'Descrição do gasto') } };
+        return { action: 'vender', payload: { ...readCurrencyForm(form), row: itemRow, expected: structuredClone(item), cliente: readText(form, 'cliente', 'Cliente', true), valorVenda: amountValue(form, 'valorVenda', 'Valor da venda', false), dataVenda, pagamento: Boolean(form.get('pagamento')), deliveryAddress: form.has('deliveryAddress') ? readText(form, 'deliveryAddress', 'Endereço de entrega', false, 500) : (item.deliveryAddress || '') } };
       },
     };
   }

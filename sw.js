@@ -1,4 +1,4 @@
-const CACHE = 'puff-v12-20261008-previsao-rastreio';
+const CACHE = 'puff-v13-20261009-enderecos';
 const SHELL = ['./','index.html','styles.css','app.js','model.mjs','money.mjs','currency-ui.mjs','shipments.mjs','notes.mjs','legacy.mjs','analytics.mjs','feedback.mjs','icon.svg','manifest.webmanifest','legacy.html'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()));});

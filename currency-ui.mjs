@@ -4,6 +4,16 @@ const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;
 const localDate=()=>new Date().toLocaleDateString('en-CA');
 const rateValue=value=>value==null?'':String(value).replace('.',',');
 
+export function deliveryAddressField(value='') {
+  return `<label class="field" for="f-deliveryAddress"><span>Endereço de entrega <small>opcional</small></span><textarea id="f-deliveryAddress" name="deliveryAddress" rows="2" maxlength="500" autocomplete="street-address" placeholder="Rua, número, bairro e cidade">${esc(value)}</textarea><small class="help">Depois de salvar, toque em 📍 Abrir no Maps para ver o endereço.</small></label>`;
+}
+
+export function deliveryAddressHTML(value) {
+  const address=String(value??'').trim();
+  if(!address)return '';
+  return `<div class="delivery-address"><span class="context-label">Endereço de entrega</span><p>${esc(address)}</p><a class="tracking-link maps-link" href="https://www.google.com/maps/search/?api=1&amp;query=${esc(encodeURIComponent(address))}" target="_blank" rel="noopener noreferrer">📍 Abrir no Maps</a></div>`;
+}
+
 export function moneyHTML(cents, record={}, reference={}, field='currency') {
   if(cents==null)return '<span class="money-unconfirmed">Não apurado</span>';
   const currency=currencyOf(record,field), cost=field==='costCurrency';

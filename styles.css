@@ -444,6 +444,11 @@ dialog::backdrop { background: #030815ba; }
 .shipment-summary { cursor: pointer; min-height: 75px; list-style: none; gap: 15px; }
 .shipment-summary::-webkit-details-marker { display: none; }
 .shipment-route { display: block; margin-top: 3px; font-size: 12px; }
+.shipment-transport { font-size: 18px; font-weight: 800; }
+.delivery-address { margin: 14px 0; padding: 12px 14px; border: 1px solid #34435f; border-radius: 12px; background: #111b30; }
+.delivery-address p { margin: 5px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.maps-link { padding: 0 12px; border-radius: 9px; background: #1c3553; text-decoration: none; }
+.maps-link:hover { background: #294b72; }
 .shipment-summary-end { display: flex; align-items: center; gap: 14px; }
 .shipment-chevron { color: var(--dim); font-size: 21px; }
 .shipment-record[open] .shipment-chevron { transform: rotate(180deg); }
