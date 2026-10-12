@@ -449,6 +449,18 @@ dialog::backdrop { background: #030815ba; }
 .delivery-address p { margin: 5px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .maps-link { padding: 0 12px; border-radius: 9px; background: #1c3553; text-decoration: none; }
 .maps-link:hover { background: #294b72; }
+.sync-blocker, .repair-panel, .release-note { margin-bottom: 20px; padding: 18px; border: 1px solid #577298; border-radius: 14px; background: #16253c; }
+.sync-blocker { border-color: #c67e87; background: #351f2a; }
+.sync-blocker h2, .repair-panel h2, .release-note h2 { margin: 0; font-size: 18px; }
+.sync-blocker p, .repair-panel p, .release-note ul { margin: 10px 0; font-size: 14px; line-height: 1.6; }
+.sync-blocker .card-actions, .repair-panel .card-actions { flex-wrap: wrap; margin-top: 12px; }
+.sync-blocker .card-actions button, .repair-panel .card-actions button { flex: 1 1 180px; white-space: normal; }
+.release-note ul { padding-left: 20px; }
+.release-note li + li { margin-top: 5px; }
+.release-note .debt-top { align-items: center; gap: 12px; }
+.release-note button { flex-shrink: 0; }
+#repair-status:empty { display: none; }
+#app-version { display: block; margin-top: 12px; }
 .shipment-summary-end { display: flex; align-items: center; gap: 14px; }
 .shipment-chevron { color: var(--dim); font-size: 21px; }
 .shipment-record[open] .shipment-chevron { transform: rotate(180deg); }
@@ -463,7 +475,7 @@ dialog::backdrop { background: #030815ba; }
 .shipment-toolbar h2 { font-size: 18px; margin: 0; }
 .shipment-help { margin-top: 22px; font-size: 12px; }
 .footer-settings > summary { color: var(--dim); font-size: 12px; min-height: 44px; padding: 12px; cursor: pointer; }
-.footer-settings .footer-tools { padding: 6px 0; }
+.footer-settings .footer-tools { padding: 6px 0; font-size: 12px; }
 .filter-options { min-width: 110px; }
 .filter-options > summary { min-height: 44px; cursor: pointer; padding: 11px 15px; color: var(--dim); border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
 .filter-options[open] { flex-basis: 100%; }
@@ -554,3 +566,14 @@ dialog::backdrop { background: #030815ba; }
 .card-actions .danger { color: var(--bad); }
 @media(max-width:540px) { .shipment-delivery { gap: 8px; } .shipment-delivery button { max-width: 50%; padding-inline: 10px; } .shipment-status { font-size: 12px; } }
 .tracking-link{display:inline-flex;align-items:center;min-height:44px;color:#a9caff;font-weight:700;text-underline-offset:4px}
+
+/* Keep recovery messages below the iPhone sensor area and menu labels within their cells. */
+.preview-notice { padding-top: calc(8px + env(safe-area-inset-top, 0px)); font-size: 11px; line-height: 1.45; }
+@media(max-width:540px) {
+  input, select, textarea { font-size: 16px; }
+  .main-tabs .more-options { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; }
+  .main-tabs .more-options button { white-space: normal; overflow-wrap: anywhere; min-width: 0; padding: 10px; text-align: left; justify-content: flex-start; }
+  .main-tabs .more-options .decision-tab { grid-column: 1 / -1; }
+  #repair-open { font-size: 12px; }
+  .sync-blocker, .repair-panel, .release-note { padding: 14px; }
+}

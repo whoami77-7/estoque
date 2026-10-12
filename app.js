@@ -6,6 +6,7 @@ import { currencyOf, formatMoney, convertCents } from './money.mjs';
 import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm, deliveryAddressField, deliveryAddressHTML } from './currency-ui.mjs';
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
 import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
+import { setupResilience } from './resilience.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -17,32 +18,60 @@ const API = 'https://script.google.com/macros/s/AKfycbzAb-D01oLo_xwI_V20ViUFmcmW
 const KEY = 'painel-puff:cache:v2';
 const PENDING_KEY = 'painel-puff:pending:v2';
 const NOTE_DRAFT_KEY = 'painel-puff:note-drafts:v1';
-let token = localStorage.getItem('chave') || '', state = {version:1,products:[],movements:[],debts:[]}, legacy = {itens:[],gastos:[],clientes:[],locais:[]};
-let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, pendingOperation;
-try{pendingOperation=JSON.parse(localStorage.getItem(PENDING_KEY));}catch{}
+function storageRead(key) { try{return localStorage.getItem(key);}catch{return null;} }
+let token = storageRead('chave') || '', state = {version:1,products:[],movements:[],debts:[]}, legacy = {itens:[],gastos:[],clientes:[],locais:[]};
+let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, saving = false, stoppedWaiting = false, refreshPromise, resilience, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, dialogInstance = 0, pendingOperation, pendingUnreadable = false, syncMessage = '';
+function readPending(){
+  let raw;try{raw=localStorage.getItem(PENDING_KEY);}catch{pendingUnreadable=true;return;}
+  pendingUnreadable=false;pendingOperation=null;
+  if(!raw)return;
+  try{const entry=JSON.parse(raw);if(!entry||typeof entry.id!=='string'||typeof entry.action!=='string'||!entry.payload||typeof entry.payload!=='object')throw Error();pendingOperation=entry;}
+  catch{pendingUnreadable=true;}
+}
+readPending();
 let modulesLoaded=false;
-let decisionCurrency=localStorage.getItem('puff:decision-currency')==='USD'?'USD':'BRL';
+let decisionCurrency=storageRead('puff:decision-currency')==='USD'?'USD':'BRL';
 let shipmentMonth=today().slice(0,7);
 let shipmentStatus='';
 let notesMonth=today().slice(0,7);
-try{const cache=JSON.parse(localStorage.getItem(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
+try{const cache=JSON.parse(storageRead(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
 const locations = () => [...new Set([...LOCATIONS,...(legacy.locais || []),...state.movements.flatMap(m=>[m.location,m.toLocation])].filter(Boolean))];
 const status = text => { $('#connection-status').textContent = text; };
+function showSyncProblem(message=syncMessage){
+  syncMessage=message;$('#sync-blocker').hidden=!message;$('#sync-message').textContent=message;
+  $('#sync-recover').disabled=saving||loading;$('#reconcile').disabled=saving||loading;
+}
+function pendingMessage(){
+  if(pendingUnreadable)return 'Há uma pendência local que não foi possível ler. Baixe o backup para conferência; os registros foram preservados.';
+  if(!pendingOperation)return '';
+  const name=({puffPagamento:'Um pagamento',puffPagamentoEdit:'Uma correção de pagamento',puffMovimento:pendingOperation.payload?.input?.type==='saida'?'Uma saída de estoque':'Uma movimentação',vender:'Uma venda',campo:'Uma atualização',puffNota:'Uma anotação'})[pendingOperation.action]||'Um lançamento';
+  return `${name} deste aparelho aguarda confirmação. Conferir e recuperar consulta ou conclui a mesma tentativa, sem criar outro lançamento.`;
+}
+const activeRequests=new Set();
 
 async function api(acao,payload={}) {
-  let response;
-  try { response = await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({acao,token,...payload}),signal:AbortSignal.timeout(45000)}); }
-  catch { throw new Error('A conexão não confirmou a operação. Atualize antes de repetir.'); }
-  if(!response.ok) throw new Error(`Servidor indisponível (${response.status}). Atualize antes de repetir.`);
-  let result; try { result = await response.json(); } catch { throw new Error('Resposta inesperada. Atualize antes de repetir.'); }
-  if(!result.ok) throw new Error(result.erro || result.error || 'Não foi possível concluir a operação.');
-  return result.dados ?? result;
+  const controller=new AbortController(),limit=['dados','puffDados','puffOperacao'].includes(acao)?20000:25000;
+  const request={controller,deadline:Date.now()+limit};activeRequests.add(request);
+  const timer=setTimeout(()=>controller.abort(),limit);
+  try{
+    const response=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({acao,token,...payload}),signal:controller.signal});
+    if(!response.ok)throw new Error(`Servidor indisponível (${response.status}).`);
+    const result=await response.json();
+    if(!result||typeof result.ok!=='boolean')throw new Error('Resposta inesperada do servidor.');
+    if(!result.ok){const error=new Error(result.erro||result.error||'Não foi possível concluir a operação.');error.serverRejected=true;throw error;}
+    return result.dados??result;
+  }catch(error){if(error.serverRejected)throw error;throw new Error('A conexão não confirmou a operação. Use Recuperar painel; não repita o lançamento.');}
+  finally{clearTimeout(timer);activeRequests.delete(request);}
 }
 async function load() {
-  if(loading)return;
+  if(loading||saving)return;
   if(!token){auth();return;}
-  loading=true; writable=false; status('Atualizando dados…');
+  readPending();
+  if(pendingOperation||pendingUnreadable)syncMessage=pendingMessage();
+  loading=true; writable=false; status('Atualizando dados…');showSyncProblem();render();
   try {
+    // Apenas consulta automática: uma tentativa incerta só é reenviada por ação do usuário.
+    if(pendingOperation)try{const known=await api('puffOperacao',{operationId:pendingOperation.id});if(known.status==='complete'){clearPending();toast('O lançamento anterior já foi salvo. Acesso recuperado.');}}catch{}
     const fresh = await api('dados');
     let extra;
     try { extra = await api('puffDados'); validateState(extra); modulesReady=true;modulesLoaded=true; }
@@ -52,15 +81,20 @@ async function load() {
     if(modulesReady)try { localStorage.setItem(KEY,JSON.stringify({legacy,state,syncedAt})); } catch { toast('Dados carregados. O navegador está sem espaço para uma cópia offline.'); }
     status(modulesReady?'✓ Dados atualizados na planilha':'Estoque conectado · módulos novos indisponíveis');
     $('#last-sync').textContent='Atualizado em '+new Date(syncedAt).toLocaleString('pt-BR');
-    if(JSON.parse(localStorage.getItem('fila') || '[]').length){writable=false;status('Há alterações pendentes na versão anterior. Abra “Versão anterior” para sincronizá-las antes de continuar.');}
-    if(pendingOperation){writable=false;status('Há uma operação sem confirmação. Use “Conferir operação” antes de novos lançamentos.');}
+    syncMessage=modulesReady?'':'Não foi possível atualizar todos os dados. Use Recuperar painel antes de registrar pagamentos ou saídas.';
+    let oldQueue=false;try{const queue=JSON.parse(storageRead('fila')||'[]');oldQueue=!Array.isArray(queue)||queue.length>0;}catch{oldQueue=true;}
+    if(oldQueue){writable=false;syncMessage='Há lançamentos da versão antiga guardados neste aparelho. Baixe o backup para conferência antes de liberar novos registros.';status(syncMessage);}
+    if(pendingOperation||pendingUnreadable){writable=false;syncMessage=pendingMessage();status('Lançamento pendente · use Conferir e recuperar.');}
     if(state.pendingLegacy){writable=false;status(pendingOperation?'Há uma operação pendente. Use “Conferir operação” antes de novos lançamentos.':'Há uma operação pendente em outro acesso. Confira o lançamento original antes de continuar.');}
+    if(state.pendingLegacy&&!pendingOperation)syncMessage='Há uma operação pendente em outro acesso. Confira o lançamento original antes de continuar.';
     render();
+    if(modulesReady)resilience?.ready();
   } catch(error) {
     writable=false;
     if(invalid){try {const cached=JSON.parse(localStorage.getItem(KEY));if(cached){validateState(cached.state);legacy=cached.legacy;state=cached.state;invalid=false;$('#last-sync').textContent='Cópia de '+new Date(cached.syncedAt).toLocaleString('pt-BR');}}catch{}}
+    syncMessage=pendingMessage()||'Sem conexão confirmada. Seus dados estão preservados; use Recuperar painel para voltar a registrar.';
     status('Sem sincronização · somente leitura');toast(error.message);render();
-  } finally {loading=false;}
+  } finally {loading=false;showSyncProblem();}
 }
 function auth() {
   openDialog('Chave de acesso',field('Sua chave','key','password',token,'required autocomplete="off"')+'<p class="help">A chave fica neste navegador e é usada somente para acessar sua planilha.</p>','Conectar',async data=>{
@@ -69,35 +103,61 @@ function auth() {
   });
 }
 async function save(action,payload={},celebration='') {
-  if(!writable)throw new Error('Atualize o painel e aguarde a conexão antes de salvar.');
+  if(!writable||saving||pendingUnreadable)throw new Error('Atualize o painel e aguarde a conexão antes de salvar.');
   if(stored!==dialogVersion)throw new Error('Os dados mudaram. Feche e abra o formulário novamente.');
   const signature=JSON.stringify({action,payload});
   if(pendingOperation&&pendingOperation.signature!==signature)throw new Error('Confira a operação pendente antes de fazer outro lançamento.');
-  if(!pendingOperation)pendingOperation={signature,id:crypto.randomUUID(),action,payload};
-  localStorage.setItem(PENDING_KEY,JSON.stringify(pendingOperation));
-  payload={...payload,operationId:pendingOperation.id};
-  // The server rejects stale row snapshots before any original-sheet mutation.
-  try{await api(action,payload);}
-  catch(error){
-    try{const known=await api('puffOperacao',{operationId:pendingOperation.id});if(known.status==='complete'){clearPending();}else if(known.status==='none'){clearPending();throw error;}else{throw error;}}
-    catch(reconciliation){if(pendingOperation){writable=false;status('Operação sem confirmação. Clique em Conferir operação.');$('#reconcile').hidden=false;}throw reconciliation;}
+  if(!pendingOperation){
+    const entry={signature,id:crypto.randomUUID(),action,payload},serialized=JSON.stringify(entry);
+    try{localStorage.setItem(PENDING_KEY,serialized);}catch{
+      // O cache é reconstruível; chave, rascunhos e lançamentos pendentes nunca são descartados.
+      try{localStorage.removeItem(KEY);localStorage.setItem(PENDING_KEY,serialized);}catch{throw new Error('Sem espaço para guardar a confirmação com segurança. Nada foi enviado. Libere espaço no aparelho e tente novamente.');}
+    }
+    pendingOperation=entry;
   }
-  clearPending();
+  payload={...payload,operationId:pendingOperation.id};
+  saving=true;stoppedWaiting=false;writable=false;status('Salvando na planilha…');showSyncProblem('Salvando com segurança… Aguarde a confirmação. Você pode sair desta janela; a tentativa ficará guardada.');
+  let confirmed=false;
+  // The server rejects stale row snapshots before any original-sheet mutation.
+  try{
+    try{await api(action,payload);confirmed=true;}
+    catch(error){
+      if(stoppedWaiting)throw new Error('A espera foi interrompida. O lançamento pode ter sido salvo; use Recuperar painel antes de continuar.');
+      const known=await api('puffOperacao',{operationId:pendingOperation.id});
+      if(known.status==='complete')confirmed=true;
+      else{if(known.status==='none'&&error.serverRejected){clearPending();writable=true;}throw error;}
+    }
+    clearPending();
+  }finally{
+    saving=false;
+    if(!confirmed||pendingOperation){syncMessage=pendingMessage();status(syncMessage?'Lançamento pendente · use Conferir e recuperar.':'Operação não salva. Revise os dados e tente novamente.');$('#reconcile').hidden=!pendingOperation;showSyncProblem();render();}
+  }
   if(celebration)reward(celebration,action==='puffPagamento'?0:Number(payload.input?.quantity || 1));
-  toast('Salvo na planilha.');await load();
+  toast('Salvo na planilha.');refreshPromise=load();
 }
-function clearPending(){pendingOperation=null;localStorage.removeItem(PENDING_KEY);$('#reconcile').hidden=true;}
+function clearPending(){
+  const current=JSON.parse(localStorage.getItem(PENDING_KEY)||'null');
+  if(current&&current.id!==pendingOperation?.id){readPending();throw new Error('Outra aba guardou uma tentativa. Recupere a conexão para conferir.');}
+  localStorage.removeItem(PENDING_KEY);pendingOperation=null;pendingUnreadable=false;$('#reconcile').hidden=true;
+}
 async function reconcile(){
-  if(!pendingOperation)return;
-  $('#reconcile').disabled=true;
+  if(saving||loading)return;
+  if(!pendingOperation){await load();return;}
+  saving=true;stoppedWaiting=false;writable=false;showSyncProblem('Conferindo o lançamento guardado neste aparelho…');
   try{
     const known=await api('puffOperacao',{operationId:pendingOperation.id});
     if(known.status==='complete'){clearPending();toast('A operação foi salva. Dados recuperados.');}
-    else if(known.status==='none'){clearPending();toast('Nada foi gravado. Você pode lançar novamente.');}
-    else if(known.status==='pending'){await api(pendingOperation.action,{...pendingOperation.payload,operationId:pendingOperation.id});clearPending();toast('Operação recuperada e confirmada.');}
+    else if(['none','pending'].includes(known.status)){
+      // Mesmo ID inclusive em "none": a requisição original pode ainda estar chegando ao servidor.
+      try{await api(pendingOperation.action,{...pendingOperation.payload,operationId:pendingOperation.id});}
+      catch(error){if(error.serverRejected){const checked=await api('puffOperacao',{operationId:pendingOperation.id});if(checked.status==='complete'){clearPending();toast('A operação já estava salva.');}else if(checked.status==='none'){clearPending();throw error;}else throw error;}else throw error;}
+      if(pendingOperation)clearPending();toast('Operação recuperada e confirmada.');
+    }
     else{throw new Error('A operação antiga pode ter sido gravada parcialmente. Confira o registro na planilha antes de liberar novos lançamentos.');}
-    if($('#editor').open)$('#editor').close();await load();
-  }catch(error){toast(error.message);}finally{$('#reconcile').disabled=false;}
+    if($('#editor').open)$('#editor').close();
+  }catch(error){toast(error.message);syncMessage=pendingMessage()||error.message;}
+  finally{saving=false;showSyncProblem();}
+  await load();
 }
 async function readPhoto(file,current='') {
   if(!file?.size)return current;
@@ -150,7 +210,7 @@ const headings = {
 const helpTopics = {
   estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros. Excluir guarda o item na Lixeira do estoque, sem registrar venda.'],
   mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
-  devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. A cor melhora até ficar verde. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
+  devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. O card fica vermelho enquanto houver saldo e verde quando estiver quitado. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
   receber: ['O que falta entrar', 'Aqui ficam os valores pendentes dos aparelhos vendidos. Use o botão de recebimento quando o aparelho for pago.\nDívidas avulsas e pagamentos parciais ficam em Devedores. Reais e dólares têm totais separados.'],
   vendas: ['Vendas e saídas', 'Consulte os aparelhos vendidos e as saídas de mercadorias, com cliente, data e valor. Use a busca ou a categoria para encontrar um lançamento.'],
   gastos: ['Registre os custos', 'Anote a descrição, o valor, a moeda e a data do gasto. Moeda / câmbio confirma a moeda do valor existente. Excluir gasto remove o registro; baixe um backup se quiser guardar uma cópia.'],
@@ -175,7 +235,7 @@ const helpTopics = {
 function render() {
   $('#page-help').dataset.help=view;
   $('#page-help').setAttribute('aria-label',`Ajuda sobre ${headings[view][0]}`);
-  if (invalid && view !== 'anotacoes') { $('#content').innerHTML = empty('Conecte com sua chave para carregar os dados do painel.'); $('#new-entry').disabled = true; return; }
+  if (invalid && view !== 'anotacoes') { $('#content').innerHTML = empty(!token?'Conecte com sua chave para carregar os dados do painel.':loading?'Carregando os dados do painel…':'Não foi possível carregar os dados. Use Recuperar painel para tentar novamente.'); $('#new-entry').disabled = true; return; }
   const [title,description,button] = headings[view];
   $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
   $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable && view !== 'anotacoes';
@@ -213,8 +273,8 @@ function render() {
   else if (view === 'devedores') {if(modulesLoaded)renderDebts();else{$('#summary').innerHTML='';$('#content').innerHTML=empty('A caderneta ainda não foi carregada. Atualize a conexão para consultar o saldo.');}}
   else if (view === 'decisao') {
     $('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?decisionView(legacy,state,{today:today(),category:categoryFilter,currency:decisionCurrency,reference}):empty('Atualize a conexão para carregar todos os módulos antes de analisar o painel.');
-    const currencySelect=$('#decision-currency');if(currencySelect)currencySelect.addEventListener('change',()=>{decisionCurrency=currencySelect.value;localStorage.setItem('puff:decision-currency',decisionCurrency);render();});
-    const disclosure=$('#decision-details');if(disclosure){disclosure.open=localStorage.getItem('puff:decision-collapsed')!=='true';disclosure.addEventListener('toggle',()=>localStorage.setItem('puff:decision-collapsed',String(!disclosure.open)));}
+    const currencySelect=$('#decision-currency');if(currencySelect)currencySelect.addEventListener('change',()=>{decisionCurrency=currencySelect.value;try{localStorage.setItem('puff:decision-currency',decisionCurrency);}catch{}render();});
+    const disclosure=$('#decision-details');if(disclosure){disclosure.open=storageRead('puff:decision-collapsed')!=='true';disclosure.addEventListener('toggle',()=>{try{localStorage.setItem('puff:decision-collapsed',String(!disclosure.open));}catch{}});}
   }
   else {
     $('#summary').innerHTML = '';
@@ -308,7 +368,7 @@ function renderDebts() {
   $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining, payments = d.payments.filter(p=>!p.deletedAt);
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
-    const paidRatio=Math.max(0,Math.min(1,paid/d.totalCents)), hue=paidRatio<=.5?paidRatio*80:40+(paidRatio-.5)*220;
+    const hue=remaining?0:150;
     return `<article class="debt-card debt-progress-color ${remaining?'debt-open':'debt-settled'}" style="--debt-hue:${Math.round(hue)}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
       <div class="debt-amount"><span class="meta">Falta receber</span><strong>${moneyHTML(remaining,d,state.settings)}</strong></div>
       <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid,d.currency))} de ${esc(money(d.totalCents,d.currency))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
@@ -325,14 +385,20 @@ function field(label,name,type='text',value='',extra='') {
 }
 function notes(value = '') { return `<label class="field" for="f-notes"><span>Observações <small>opcional</small></span><textarea id="f-notes" name="notes" rows="3" maxlength="1000" placeholder="Um detalhe para lembrar depois…">${esc(value)}</textarea></label>`; }
 function openDialog(title, fields, saveLabel, save, helpTopic = '') {
+  dialogInstance++;
   $('#dialog-fields').oninput=null;$('#dialog-fields').onchange=null;
   $('#dialog-title').textContent = title; $('#dialog-fields').innerHTML = fields;
   $('#dialog-help').hidden=!helpTopic; $('#dialog-help').dataset.help=helpTopic;
   $('#form-error').textContent = ''; $('#save-dialog').textContent = saveLabel || 'Salvar';
+  $('#save-dialog').disabled=saving;
   $('#save-dialog').hidden = !save; $('#cancel-dialog').textContent = save ? 'Cancelar' : 'Fechar';
   dialogAction = save; dialogVersion = stored; $('#editor').showModal();
 }
-function closeDialog() { if (!$('#save-dialog').disabled) $('#editor').close(); }
+function closeDialog() {
+  if(saving){stoppedWaiting=true;for(const request of activeRequests)request.controller.abort();toast('A tentativa ficou guardada. Use Recuperar painel antes de registrar novamente.');}
+  else if($('#save-dialog').disabled)return;
+  $('#editor').close();
+}
 
 function productForm(id, sourceNote) {
   const product = state.products.find(p=>p.id===id);
@@ -420,7 +486,7 @@ function movementForm(id,type,sourceNote) {
   const p=state.products.find(p=>p.id===id); if(!p)return;
   if(p.deletedAt)throw new Error('Restaure o produto pela Lixeira antes de movimentar.');
   const titles={entrada:'Registrar entrada',saida:'Registrar saída',transferencia:'Transferir entre locais'};
-  const source=locationFilter || 'Depósito SP';
+  const source=locationFilter || (type!=='entrada'&&locations().find(local=>balance(state,id,local)>0)) || 'Depósito SP';
   openDialog(titles[type],`<p class="dialog-summary"><strong>${esc(p.name)}</strong><br><span id="stock-at-location">${balance(state,id,source)} un. em ${esc(source)}</span></p>`+
     `<div class="form-grid">${field('Quantidade','quantity','number',1,'required min="1" max="1000000" step="1"')}<label class="field" for="f-location"><span>${type==='transferencia'?'Local de origem':'Local'}</span><select name="location" id="f-location">${locationOptions(source)}</select></label></div>`+
     (type==='transferencia'?`<label class="field" for="f-toLocation"><span>Local de destino</span><select id="f-toLocation" name="toLocation">${locationOptions(source==='Loja'?'Depósito SP':'Loja')}</select></label>`:'')+
@@ -652,20 +718,23 @@ document.addEventListener('click',e=>{
   } catch(error){toast(error.message);}
 });
 $('#close-dialog').addEventListener('click',closeDialog);$('#cancel-dialog').addEventListener('click',closeDialog);
-$('#editor').addEventListener('cancel',e=>{if($('#save-dialog').disabled)e.preventDefault();});
+$('#editor').addEventListener('cancel',e=>{if($('#save-dialog').disabled){e.preventDefault();closeDialog();}});
 $('#editor-form').addEventListener('submit',async e=>{
   e.preventDefault();if(!dialogAction||$('#save-dialog').disabled)return;
   unlockSound();
+  const instance=dialogInstance,label=$('#save-dialog').textContent;
   $('#form-error').textContent='';$('#save-dialog').disabled=true;
-  try{if(stored!==dialogVersion)throw new Error('Os dados mudaram. Feche e reabra o formulário.');await dialogAction(new FormData(e.target));$('#editor').close();}catch(error){$('#form-error').textContent=error.message;}
-  finally{$('#save-dialog').disabled=false;}
+  $('#save-dialog').textContent='Salvando…';$('#cancel-dialog').textContent='Sair e conferir depois';
+  try{if(stored!==dialogVersion)throw new Error('Os dados mudaram. Feche e reabra o formulário.');await dialogAction(new FormData(e.target));if(instance===dialogInstance)$('#editor').close();}catch(error){if(instance===dialogInstance)$('#form-error').textContent=error.message;}
+  finally{if(instance===dialogInstance){$('#save-dialog').disabled=false;$('#save-dialog').textContent=label;$('#cancel-dialog').textContent='Cancelar';}}
 });
-$('#export-backup').addEventListener('click',()=>{
-  if(invalid){toast('Conecte para carregar os dados antes de exportar.');return;}
-  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state},null,2);
+function exportBackup(){
+  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state,local:{pendingOperation,storedPending:storageRead(PENDING_KEY),legacyQueue:storageRead('fila'),noteDrafts:storageRead(NOTE_DRAFT_KEY)}},null,2);
   const url=URL.createObjectURL(new Blob([data ?? ''],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download=`painel-puff-backup-${today()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('Backup preparado para download.');
-});
+}
+$('#export-backup').addEventListener('click',exportBackup);$('#sync-export').addEventListener('click',exportBackup);
+$('#sync-recover').addEventListener('click',()=>{if($('#editor').open&&!pendingOperation){toast('Feche o formulário antes de recuperar a conexão.');return;}return pendingOperation?reconcile():load();});
 $('#refresh').addEventListener('click',()=>{if($('#editor').open){toast('Feche o formulário antes de atualizar.');return;}load();});
 $('#reconcile').addEventListener('click',reconcile);
 $('#change-key').addEventListener('click',auth);
@@ -674,6 +743,15 @@ $('#alisson-balance').addEventListener('click',()=>{
   const usd=value=>money(value,'USD');
   openDialog('Uma nobre causa: o café do Alisson ☕',`<p>📦 Você cuida do estoque. ☕ O Alisson cuida do café que mantém as ideias funcionando.</p><p class="dialog-summary">💰 Fundo do cafezinho <strong>${usd(commission.balanceCents)}</strong></p><p>❄️ Cada ar-condicionado vendido rende <strong>US$ 0,50 pro cafezinho</strong>. Clima fresco, café quentinho! ☕😄</p><p class="help">Somente unidades de ar-condicionado vendidas. Dívidas, recebimentos e outras mercadorias não entram. Contador informativo, sem transferência automática.</p>${commission.entries.length?`<h3>🤝 Quem abasteceu a cafeteira</h3><div class="payments">${commission.entries.slice(-10).reverse().map(entry=>`<div class="payment-row"><div><strong>${esc(entry.reason || 'Unidades registradas')}</strong><p class="meta">${esc(entry.units)} un. · ${esc(new Date(entry.createdAt).toLocaleDateString('pt-BR'))}</p></div><strong>${usd(entry.amountCents)}</strong></div>`).join('')}</div>`:'<p class="help">🚀 A cafeteira está pronta. O primeiro lançamento inaugura o fundo.</p>'}`,null,null);
 });
-window.addEventListener('storage',e=>{if(e.key===KEY){writable=false;stored++;status('Outra aba atualizou o painel. Clique em Atualizar.');render();}});
+window.addEventListener('storage',e=>{if([KEY,PENDING_KEY,'fila'].includes(e.key)){if(e.key===PENDING_KEY&&!saving)readPending();writable=false;stored++;syncMessage=pendingMessage()||'Outra aba atualizou o painel. Clique em Recuperar painel.';status(syncMessage);showSyncProblem();render();}});
+function resumeConnection(){
+  if(document.hidden)return;
+  for(const request of activeRequests)if(Date.now()>=request.deadline)request.controller.abort();
+  if(!saving&&!loading&&!$('#editor').open)refreshPromise=load();
+}
+window.addEventListener('pageshow',resumeConnection);window.addEventListener('online',resumeConnection);
+document.addEventListener('visibilitychange',resumeConnection);
+resilience=setupResilience({busy:()=>saving||loading,openForm:()=>$('#editor').open,recover:()=>pendingOperation?reconcile():load()});
 setupFeedback();render();load();
-if('serviceWorker' in navigator && location.hostname!=='localhost' && location.hostname!=='127.0.0.1')navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+

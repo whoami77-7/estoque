@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b1020">
   <meta name="color-scheme" content="dark">
+  <meta name="puff-release" content="2026-10-12-recuperacao">
   <title>Deshboard do Puff</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
@@ -26,8 +27,27 @@
         <button id="exchange-rate" class="secondary" type="button">R$ ⇄ US$ · Câmbio</button>
         <button id="refresh" class="ghost" type="button">↻ Atualizar</button>
         <button id="reconcile" class="secondary" type="button" hidden>Conferir operação</button>
+        <button id="repair-open" class="secondary" type="button" aria-controls="repair-panel">🛠 Recuperar painel</button>
+        <button id="app-update" class="primary" type="button" hidden>Nova versão · Atualizar app</button>
       </div>
     </header>
+
+    <section id="sync-blocker" class="sync-blocker" aria-labelledby="sync-title" hidden>
+      <h2 id="sync-title">Vamos conferir antes de continuar</h2>
+      <p id="sync-message" role="status"></p>
+      <div class="card-actions"><button id="sync-recover" type="button" class="primary">Conferir e recuperar</button><button id="sync-export" type="button" class="secondary">Guardar backup deste aparelho</button></div>
+    </section>
+    <section id="repair-panel" class="repair-panel" aria-labelledby="repair-title" hidden>
+      <h2 id="repair-title">Recuperar painel</h2>
+      <p>Primeiro, confira a conexão e o lançamento pendente. Se a tela continuar com problema, recarregue os arquivos do app.</p>
+      <p class="help">Sua chave, anotações e tentativas pendentes ficam guardadas. Não precisa apagar os dados do Safari.</p>
+      <div class="card-actions"><button id="repair-check" type="button" class="primary">Conferir conexão / lançamento</button><button id="repair-reload" type="button" class="secondary">Recarregar arquivos do app</button><button id="repair-close" type="button" class="ghost">Fechar</button></div>
+      <p id="repair-status" role="status"></p>
+    </section>
+    <section id="release-note" class="release-note" aria-labelledby="release-title" hidden>
+      <div class="debt-top"><h2 id="release-title">Novidades · 12 de outubro</h2><button id="release-dismiss" type="button" class="ghost" aria-label="Fechar novidades">Entendi</button></div>
+      <ul><li>Recuperação de pagamentos e saídas que ficaram sem confirmação.</li><li>Botão <strong>Recuperar painel</strong> e avisos mais visíveis no iPhone.</li><li>Devedores em <strong>vermelho</strong> enquanto há saldo; <strong>verde</strong> quando quitados.</li></ul>
+    </section>
 
     <nav class="tabs main-tabs" aria-label="Seções do painel">
       <button type="button" data-section="estoque" class="active" aria-current="page">📦 Estoque</button>
@@ -75,7 +95,7 @@
 
       <div id="content" tabindex="-1"></div>
     </main>
-    <footer class="app-footer"><details class="footer-settings"><summary>Configurações e histórico</summary><div class="footer-tools"><button type="button" class="ghost" data-view="arquivados">Lixeira do estoque</button><button id="export-backup" class="ghost" type="button">Baixar backup</button><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div></details><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p></footer>
+    <footer class="app-footer"><details class="footer-settings"><summary>Configurações e histórico</summary><div class="footer-tools"><button type="button" class="ghost" data-view="arquivados">Lixeira do estoque</button><button id="export-backup" class="ghost" type="button">Baixar backup</button><button id="release-open" class="ghost" type="button">Novidades da versão</button><button id="change-key" class="ghost" type="button">Chave de acesso</button><button id="sound-toggle" class="ghost" type="button" aria-pressed="true">♪ Som ligado</button></div></details><button id="alisson-balance" class="alisson-balance ghost" type="button" aria-label="Saldo informativo do Alisson">☕ Alisson <strong>US$ 0,00</strong></button><p class="help" id="last-sync"></p><span class="help" id="app-version"></span></footer>
   </div>
 
   <dialog id="editor" aria-labelledby="dialog-title">
