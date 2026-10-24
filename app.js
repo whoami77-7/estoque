@@ -7,7 +7,7 @@ import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm, deliveryAddress
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
 import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
 import { setupResilience } from './resilience.mjs';
-import { getExpressProducts, expressProductOptions, expressForm, readExpressForm, buildExpressMessage } from './express.mjs';
+import { getExpressProducts, expressProductOptions, expressModelOptions, expressModelDetails, expressExactModel, expressForm, readExpressForm, buildExpressMessage } from './express.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,7 +22,7 @@ const NOTE_DRAFT_KEY = 'painel-puff:note-drafts:v1';
 const EXPRESS_DRAFT_KEY = 'painel-puff:express-draft:v1';
 function storageRead(key) { try{return localStorage.getItem(key);}catch{return null;} }
 let expressDraft={};
-try{const draft=JSON.parse(storageRead(EXPRESS_DRAFT_KEY));for(const key of ['productKey','price','currency','customer','specifications','conditions'])if(typeof draft?.[key]==='string'&&draft[key].length<=600)expressDraft[key]=draft[key];}catch{}
+try{const draft=JSON.parse(storageRead(EXPRESS_DRAFT_KEY));for(const key of ['productKey','price','currency','customer','specifications','conditions','catalogModelId','catalogProductName'])if(typeof draft?.[key]==='string'&&draft[key].length<=600)expressDraft[key]=draft[key];}catch{}
 let token = storageRead('chave') || '', state = {version:1,products:[],movements:[],debts:[]}, legacy = {itens:[],gastos:[],clientes:[],locais:[]};
 let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, saving = false, stoppedWaiting = false, refreshPromise, resilience, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, dialogInstance = 0, pendingOperation, pendingUnreadable = false, syncMessage = '';
 let lastSyncAt=0, lastResumeAt=0, refreshAfterClose=false, externalRevision=0, combinedReadSupported=true, awaitingSavedSnapshot=false;
@@ -227,7 +227,7 @@ const headings = {
   arquivados:['Lixeira do estoque','Excluiu por engano? Restaure o item aqui.','']
 };
 const helpTopics = {
-  express:['Sua oferta em poucos toques','Escolha um ar disponível, informe o preço em reais ou dólares e complete as especificações que tiver confirmado. Gere, confira e copie ou compartilhe a mensagem.\nO rascunho fica neste aparelho. Gerar uma oferta não registra venda nem baixa o estoque. Quando fechar com o cliente, confirme a venda no Estoque.'],
+  express:['Sua oferta em poucos toques','Escolha o ar. Se o cadastro tiver o código exato, a ficha é preenchida; nos demais, escolha o modelo da Rio Paraná conferindo a etiqueta. Versões 110 V, 220 V, Inverter e convencional têm características diferentes.\nSem ficha confirmada, entram só os dados escritos no cadastro. Acrescente detalhes confirmados, informe o preço em reais ou dólares e gere a mensagem.\nO rascunho fica neste aparelho. A oferta não baixa o estoque: confirme a venda no Estoque quando fechar com o cliente.'],
   estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros. Excluir guarda o item na Lixeira do estoque, sem registrar venda.'],
   mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
   devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. O card fica vermelho enquanto houver saldo e verde quando estiver quitado. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
@@ -307,13 +307,25 @@ function render() {
   setAlissonBalance(state.commission?.balanceCents || 0);
 }
 
+function updateExpressModel(products,reset=false){
+  const product=products.find(p=>p.key===$('#express-product').value),select=$('#express-model'),stockName=$('#express-model-product');
+  const modelId=reset?expressExactModel(product):select.value;
+  if(reset)stockName.value=product?.name||'';
+  select.innerHTML=expressModelOptions(product,modelId);
+  const details=expressModelDetails(product,modelId,stockName.value);
+  select.disabled=!product||!details.hasModels&&!modelId;
+  $('#express-model-hint').textContent=details.hint;
+  $('#express-model-specs').textContent=details.text;$('#express-model-specs').hidden=!details.text;
+  $('#express-model-source').hidden=!details.sourceUrl;
+  if(details.sourceUrl)$('#express-model-source').href=details.sourceUrl;
+}
 function renderExpress(){
   $('#summary').innerHTML='';
   const products=getExpressProducts(legacy,state);
   // Keep the mounted form and focus when a background read completes.
   if($('#express-form')){
     const select=$('#express-product');select.innerHTML=expressProductOptions(products,select.value);
-    $('#express-empty').hidden=products.length>0;return;
+    $('#express-empty').hidden=products.length>0;updateExpressModel(products);return;
   }
   $('#content').innerHTML=expressForm(products,expressDraft);
   const form=$('#express-form'),message=$('#express-message'),copy=$('#express-copy'),share=$('#express-share'),feedback=$('#express-status');
@@ -324,7 +336,11 @@ function renderExpress(){
     const product=getExpressProducts(legacy,state).find(p=>p.key===$('#express-product').value);
     $('#express-price').value=product?.priceCents?(product.priceCents/100).toFixed(2).replace('.',','):'';
     $('#express-currency').value=product?.currency||'';
-    $('#express-specifications').value='';remember();
+    $('#express-specifications').value='';updateExpressModel(getExpressProducts(legacy,state),true);remember();
+  });
+  $('#express-model').addEventListener('change',()=>{
+    const products=getExpressProducts(legacy,state),product=products.find(p=>p.key===$('#express-product').value);
+    $('#express-model-product').value=product?.name||'';updateExpressModel(products);remember();
   });
   form.addEventListener('change',remember);
   const generate=()=>{

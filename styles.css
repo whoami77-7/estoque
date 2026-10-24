@@ -581,6 +581,10 @@ dialog::backdrop { background: #030815ba; }
 .express-preview { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
 #express-message { min-height: 280px; line-height: 1.65; resize: vertical; }
 .express-preview .help { font-size: 12px; }
+.express-model { margin: 0 0 24px; }
+.express-model .help { margin: 7px 0 10px; font-size: 12px; }
+.express-model-specs { margin: 0; padding: 12px 0; border-block: 1px solid var(--line); white-space: pre-line; font-size: 14px; color: #c8e7df; }
+.express-model .tracking-link { font-size: 12px; }
 .express-actions { flex-wrap: wrap; }
 .express-actions button { flex: 1 1 140px; }
 #express-status:empty { display: none; }
