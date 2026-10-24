@@ -1,5 +1,5 @@
-const CACHE = 'puff-v14-20261012-recuperacao';
-const SHELL = ['./','index.html','styles.css','app.js','model.mjs','money.mjs','currency-ui.mjs','shipments.mjs','notes.mjs','legacy.mjs','analytics.mjs','feedback.mjs','resilience.mjs','icon.svg','manifest.webmanifest','legacy.html'];
+const CACHE = 'puff-v15-20261024-express';
+const SHELL = ['./','index.html','styles.css','app.js','model.mjs','money.mjs','currency-ui.mjs','shipments.mjs','notes.mjs','legacy.mjs','analytics.mjs','feedback.mjs','resilience.mjs','express.mjs','icon.svg','manifest.webmanifest','legacy.html'];
 const SHELL_URLS = new Set(SHELL.map(path=>new URL(path,self.registration.scope).href));
 
 self.addEventListener('install',event=>{

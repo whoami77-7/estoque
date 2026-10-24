@@ -530,8 +530,8 @@ dialog::backdrop { background: #030815ba; }
   .nav-more { margin-left: 0; }
   .nav-more > summary { font-size: 12px; padding-inline: 8px; }
   .main-tabs .more-options button { flex: 1; }
-  .main-tabs .notes-shortcut { grid-column: span 3; }
-  .main-tabs .nav-more { grid-column: span 3; min-width: 0; }
+  .main-tabs .notes-shortcut { grid-column: span 2; }
+  .main-tabs .nav-more { grid-column: span 2; min-width: 0; }
   .main-tabs .nav-more > summary { justify-content: center; }
   .main-tabs .nav-more[open] { grid-column: 1 / -1; }
   .section-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
@@ -566,6 +566,26 @@ dialog::backdrop { background: #030815ba; }
 .card-actions .danger { color: var(--bad); }
 @media(max-width:540px) { .shipment-delivery { gap: 8px; } .shipment-delivery button { max-width: 50%; padding-inline: 10px; } .shipment-status { font-size: 12px; } }
 .tracking-link{display:inline-flex;align-items:center;min-height:44px;color:#a9caff;font-weight:700;text-underline-offset:4px}
+
+.main-tabs .express-shortcut { color: #a5edd6; border-color: #447e72; background: #172f30; font-weight: 700; }
+.main-tabs .express-shortcut:hover { background: #20453f; }
+.main-tabs .express-shortcut.active { background: #91e4c8; border-color: #91e4c8; color: #122b24; }
+.express-intro { margin: 0 0 24px; }
+.express-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: start; gap: 28px; }
+.express-fields, .express-preview { min-width: 0; }
+.express-layout label { display: block; margin-bottom: 7px; font-size: 14px; font-weight: 650; }
+.express-layout input, .express-layout select, .express-layout textarea { width: 100%; min-width: 0; }
+.express-fields > input, .express-fields > select, .express-fields > textarea { margin-bottom: 20px; }
+.express-price-fields { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(0,1fr); gap: 14px; }
+.express-fields > .help { margin: 8px 0 20px; font-size: 12px; }
+.express-preview { padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+#express-message { min-height: 280px; line-height: 1.65; resize: vertical; }
+.express-preview .help { font-size: 12px; }
+.express-actions { flex-wrap: wrap; }
+.express-actions button { flex: 1 1 140px; }
+#express-status:empty { display: none; }
+@media(max-width:760px) { .express-layout { grid-template-columns: minmax(0,1fr); gap: 24px; } }
+@media(max-width:540px) { .main-tabs .express-shortcut { white-space: normal; } .express-preview { padding: 16px; } }
 
 /* Keep recovery messages below the iPhone sensor area and menu labels within their cells. */
 .preview-notice { padding-top: calc(8px + env(safe-area-inset-top, 0px)); font-size: 11px; line-height: 1.45; }

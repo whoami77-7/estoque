@@ -7,6 +7,7 @@ import { moneyHTML, moneyTotals, currencyForm, readCurrencyForm, deliveryAddress
 import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs';
 import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
 import { setupResilience } from './resilience.mjs';
+import { getExpressProducts, expressProductOptions, expressForm, readExpressForm, buildExpressMessage } from './express.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,9 +19,13 @@ const API = 'https://script.google.com/macros/s/AKfycbzAb-D01oLo_xwI_V20ViUFmcmW
 const KEY = 'painel-puff:cache:v2';
 const PENDING_KEY = 'painel-puff:pending:v2';
 const NOTE_DRAFT_KEY = 'painel-puff:note-drafts:v1';
+const EXPRESS_DRAFT_KEY = 'painel-puff:express-draft:v1';
 function storageRead(key) { try{return localStorage.getItem(key);}catch{return null;} }
+let expressDraft={};
+try{const draft=JSON.parse(storageRead(EXPRESS_DRAFT_KEY));for(const key of ['productKey','price','currency','customer','specifications','conditions'])if(typeof draft?.[key]==='string'&&draft[key].length<=600)expressDraft[key]=draft[key];}catch{}
 let token = storageRead('chave') || '', state = {version:1,products:[],movements:[],debts:[]}, legacy = {itens:[],gastos:[],clientes:[],locais:[]};
 let invalid = true, writable = false, modulesReady = false, stored = 0, loading = false, saving = false, stoppedWaiting = false, refreshPromise, resilience, view = 'estoque', search = '', locationFilter = '', stockFilter = '', categoryFilter = '', dialogAction, dialogVersion, dialogInstance = 0, pendingOperation, pendingUnreadable = false, syncMessage = '';
+let lastSyncAt=0, lastResumeAt=0, refreshAfterClose=false, externalRevision=0, combinedReadSupported=true, awaitingSavedSnapshot=false;
 function readPending(){
   let raw;try{raw=localStorage.getItem(PENDING_KEY);}catch{pendingUnreadable=true;return;}
   pendingUnreadable=false;pendingOperation=null;
@@ -34,7 +39,7 @@ let decisionCurrency=storageRead('puff:decision-currency')==='USD'?'USD':'BRL';
 let shipmentMonth=today().slice(0,7);
 let shipmentStatus='';
 let notesMonth=today().slice(0,7);
-try{const cache=JSON.parse(storageRead(KEY));if(cache){validateState(cache.state);state=cache.state;modulesLoaded=true;}}catch{}
+try{const cache=JSON.parse(storageRead(KEY));if(cache&&cache.legacy&&Array.isArray(cache.legacy.itens)){validateState(cache.state);state=cache.state;legacy=cache.legacy;legacy.currencyReference=state.settings||{};modulesLoaded=true;invalid=false;$('#last-sync').textContent='Cópia de '+new Date(cache.syncedAt).toLocaleString('pt-BR');}}catch{}
 const locations = () => [...new Set([...LOCATIONS,...(legacy.locais || []),...state.movements.flatMap(m=>[m.location,m.toLocation])].filter(Boolean))];
 const status = text => { $('#connection-status').textContent = text; };
 function showSyncProblem(message=syncMessage){
@@ -50,7 +55,7 @@ function pendingMessage(){
 const activeRequests=new Set();
 
 async function api(acao,payload={}) {
-  const controller=new AbortController(),limit=['dados','puffDados','puffOperacao'].includes(acao)?20000:25000;
+  const controller=new AbortController(),limit=['dados','puffDados','puffPainel','puffOperacao'].includes(acao)?20000:25000;
   const request={controller,deadline:Date.now()+limit};activeRequests.add(request);
   const timer=setTimeout(()=>controller.abort(),limit);
   try{
@@ -60,24 +65,35 @@ async function api(acao,payload={}) {
     if(!result||typeof result.ok!=='boolean')throw new Error('Resposta inesperada do servidor.');
     if(!result.ok){const error=new Error(result.erro||result.error||'Não foi possível concluir a operação.');error.serverRejected=true;throw error;}
     return result.dados??result;
-  }catch(error){if(error.serverRejected)throw error;throw new Error('A conexão não confirmou a operação. Use Recuperar painel; não repita o lançamento.');}
+  }catch(error){if(error.serverRejected)throw error;throw new Error(['dados','puffDados','puffPainel','puffOperacao'].includes(acao)?'A conexão não respondeu para atualizar os dados. A última cópia continua disponível.':'A conexão não confirmou a operação. Use Recuperar painel; não repita o lançamento.');}
   finally{clearTimeout(timer);activeRequests.delete(request);}
 }
-async function load() {
+async function readSnapshot(){
+  if(combinedReadSupported){
+    try{return await api('puffPainel');}
+    catch(error){if(!error.serverRejected||!/^acao desconhecida:\s*puffPainel$/i.test(error.message))throw error;combinedReadSupported=false;}
+  }
+  // Compatibility with the previous server only; a slow connection never doubles its requests.
+  return {legacy:await api('dados'),modules:await api('puffDados')};
+}
+async function load(prefetched) {
   if(loading||saving)return;
   if(!token){auth();return;}
   readPending();
   if(pendingOperation||pendingUnreadable)syncMessage=pendingMessage();
-  loading=true; writable=false; status('Atualizando dados…');showSyncProblem();render();
+  const revision=externalRevision,instanceAtStart=dialogInstance;refreshAfterClose=false;
+  loading=true; writable=false; status(awaitingSavedSnapshot?'Salvo ✓ Atualizando a lista…':'Atualizando dados…');showSyncProblem();render();
   try {
     // Apenas consulta automática: uma tentativa incerta só é reenviada por ação do usuário.
     if(pendingOperation)try{const known=await api('puffOperacao',{operationId:pendingOperation.id});if(known.status==='complete'){clearPending();toast('O lançamento anterior já foi salvo. Acesso recuperado.');}}catch{}
-    const fresh = await api('dados');
-    let extra;
-    try { extra = await api('puffDados'); validateState(extra); modulesReady=true;modulesLoaded=true; }
-    catch(error) { modulesReady=false; extra=state; toast('Estoque carregado. Módulos novos aguardam conexão: '+error.message); }
+    const snapshot=prefetched||await readSnapshot(),fresh=snapshot.legacy,extra=snapshot.modules;
+    if(!fresh||!Array.isArray(fresh.itens))throw new Error('A resposta do estoque está incompleta. A última cópia foi preservada.');
+    validateState(extra);
+    if(revision!==externalRevision)throw new Error('Outro acesso está atualizando o painel. Aguarde a confirmação antes de continuar.');
+    if($('#editor').open&&dialogInstance!==instanceAtStart){refreshAfterClose=true;return;}
+    modulesReady=true;modulesLoaded=true;awaitingSavedSnapshot=false;
     legacy=fresh; state=extra; legacy.currencyReference=state.settings||{}; invalid=false; writable=modulesReady; stored++;
-    const syncedAt=new Date().toISOString();
+    lastSyncAt=Date.now();const syncedAt=new Date(lastSyncAt).toISOString();
     if(modulesReady)try { localStorage.setItem(KEY,JSON.stringify({legacy,state,syncedAt})); } catch { toast('Dados carregados. O navegador está sem espaço para uma cópia offline.'); }
     status(modulesReady?'✓ Dados atualizados na planilha':'Estoque conectado · módulos novos indisponíveis');
     $('#last-sync').textContent='Atualizado em '+new Date(syncedAt).toLocaleString('pt-BR');
@@ -90,16 +106,18 @@ async function load() {
     render();
     if(modulesReady)resilience?.ready();
   } catch(error) {
-    writable=false;
+    writable=false;modulesReady=false;
     if(invalid){try {const cached=JSON.parse(localStorage.getItem(KEY));if(cached){validateState(cached.state);legacy=cached.legacy;state=cached.state;invalid=false;$('#last-sync').textContent='Cópia de '+new Date(cached.syncedAt).toLocaleString('pt-BR');}}catch{}}
-    syncMessage=pendingMessage()||'Sem conexão confirmada. Seus dados estão preservados; use Recuperar painel para voltar a registrar.';
+    syncMessage=pendingMessage()||(awaitingSavedSnapshot?'O lançamento foi salvo, mas a lista ainda não atualizou. Use Conferir e recuperar; não registre novamente.':'Sem conexão confirmada. Seus dados estão preservados; use Recuperar painel para voltar a registrar.');
     status('Sem sincronização · somente leitura');toast(error.message);render();
-  } finally {loading=false;showSyncProblem();}
+  } finally {loading=false;showSyncProblem();if(awaitingSavedSnapshot)render();if(refreshAfterClose&&!saving&&!$('#editor').open&&!pendingOperation&&!pendingUnreadable){refreshAfterClose=false;refreshPromise=load();}}
 }
 function auth() {
   openDialog('Chave de acesso',field('Sua chave','key','password',token,'required autocomplete="off"')+'<p class="help">A chave fica neste navegador e é usada somente para acessar sua planilha.</p>','Conectar',async data=>{
     const next=String(data.get('key') || '').trim();if(!next)throw new Error('Informe a chave.');
-    token=next;await api('dados');localStorage.setItem('chave',next);await load();
+    const previous=token;token=next;let snapshot;
+    try{snapshot=await readSnapshot();validateState(snapshot.modules);if(!Array.isArray(snapshot.legacy?.itens))throw new Error('Resposta incompleta do painel.');localStorage.setItem('chave',next);}catch(error){token=previous;throw error;}
+    await load(snapshot);
   });
 }
 async function save(action,payload={},celebration='') {
@@ -133,7 +151,7 @@ async function save(action,payload={},celebration='') {
     if(!confirmed||pendingOperation){syncMessage=pendingMessage();status(syncMessage?'Lançamento pendente · use Conferir e recuperar.':'Operação não salva. Revise os dados e tente novamente.');$('#reconcile').hidden=!pendingOperation;showSyncProblem();render();}
   }
   if(celebration)reward(celebration,action==='puffPagamento'?0:Number(payload.input?.quantity || 1));
-  toast('Salvo na planilha.');refreshPromise=load();
+  awaitingSavedSnapshot=true;toast('Salvo na planilha. Atualizando a lista…');refreshPromise=load();
 }
 function clearPending(){
   const current=JSON.parse(localStorage.getItem(PENDING_KEY)||'null');
@@ -194,6 +212,7 @@ const empty = text => `<div class="empty">${text}</div>`;
 const locationOptions = value => locations().map(l => `<option ${l === value ? 'selected' : ''}>${esc(l)}</option>`).join('');
 const stockName = p => p.stock === 'principal' ? 'Estoque principal' : 'Mercadorias';
 const headings = {
+  express:['Venda Express','Monte a oferta e leve a mensagem pronta para o cliente.',''],
   mercadorias:['Mercadorias','Cada produto, seu saldo e tudo o que aconteceu.','+ Novo produto'],
   devedores:['Devedores','Anote o combinado. Registre cada pagamento.','+ Nova dívida'],
   estoque:['Estoque','Todos os produtos, cada estoque com a sua cor.','+ Novo produto'],
@@ -208,6 +227,7 @@ const headings = {
   arquivados:['Lixeira do estoque','Excluiu por engano? Restaure o item aqui.','']
 };
 const helpTopics = {
+  express:['Sua oferta em poucos toques','Escolha um ar disponível, informe o preço em reais ou dólares e complete as especificações que tiver confirmado. Gere, confira e copie ou compartilhe a mensagem.\nO rascunho fica neste aparelho. Gerar uma oferta não registra venda nem baixa o estoque. Quando fechar com o cliente, confirme a venda no Estoque.'],
   estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros. Excluir guarda o item na Lixeira do estoque, sem registrar venda.'],
   mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
   devedores: ['Receba aos poucos', 'Registre o valor original. A cada recebimento, use Registrar pagamento parcial e informe o valor pago e a data.\nExemplo: devia 3.000, pagou 500, faltam 2.500. O card fica vermelho enquanto houver saldo e verde quando estiver quitado. Use Editar dívida ou Histórico / pagamentos para corrigir.'],
@@ -239,13 +259,14 @@ function render() {
   const [title,description,button] = headings[view];
   $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
   $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable && view !== 'anotacoes';
+  $('#summary').hidden=view==='express';$('.filter-bar').hidden=view==='express';
   $('#reconcile').hidden=!pendingOperation;
   const reference=state.settings||{};
   $('#exchange-rate').textContent=reference.fxRate?`R$ ⇄ US$ · ${String(reference.fxRate).replace('.',',')}`:'R$ ⇄ US$ · Câmbio';
   $('#exchange-rate').disabled=!writable;
   $('#exchange-note').textContent=reference.fxRate?`Câmbio informado: US$ 1 = R$ ${String(reference.fxRate).replace('.',',')} · ${dateBR(reference.fxDate)}`:'Valores em R$ e US$. Equivalências aparecem ao informar um câmbio.';
-  $('#exchange-note').hidden=['envios','anotacoes'].includes(view);
-  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['envios','anotacoes'].includes(view)?view:'';
+  $('#exchange-note').hidden=['envios','anotacoes','express'].includes(view);
+  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['envios','anotacoes','express'].includes(view)?view:'';
   document.querySelectorAll('[data-section]').forEach(b=>{b.classList.toggle('active',b.dataset.section===section);b.setAttribute('aria-current',b.dataset.section===section?'page':'false');});
   const sectionViews=section==='estoque'?[['estoque','Todos','',''],['estoque','Estoque principal','principal',''],['mercadorias','Mercadorias','mercadorias',''],['estoque','Depósito SP','','Depósito SP']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
   $('#section-tabs').innerHTML=sectionViews.map(([name,label,stock,local])=>`<button type="button" data-view="${name}"${stock!==undefined?` data-stock="${stock}" data-location="${local}"`:''}>${label}</button>`).join('');
@@ -255,7 +276,7 @@ function render() {
   $('#stock-trash').hidden=!['estoque','mercadorias'].includes(view);
   $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').setAttribute('aria-label',$('#search').placeholder);
-  $('#search').closest('label').hidden = view === 'decisao';
+  $('#search').closest('label').hidden = ['decisao','express'].includes(view);
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
   $('#category-filter').closest('label').hidden = !['estoque','mercadorias','vendas','receber','decisao'].includes(view);
   $('#filter-options').hidden=!['estoque','mercadorias','vendas','receber','decisao'].includes(view);
@@ -266,7 +287,9 @@ function render() {
   $('#active-filters').innerHTML=activeFilters.map(label=>`<span class="chip">${esc(label)}</span>`).join('')+(activeFilters.length?'<button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>':'');
   $('#location-filter').innerHTML='<option value="">Todos os locais</option>'+locationOptions(locationFilter);$('#location-filter').value=locationFilter;
   document.querySelectorAll('[data-view]').forEach(b => { const active=b.dataset.view===view&&(b.dataset.stock===undefined||b.dataset.stock===stockFilter&&b.dataset.location===locationFilter);b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false'); });
-  if (view === 'mercadorias' || view === 'estoque') renderProducts();
+  if(awaitingSavedSnapshot&&loading&&!['anotacoes','express'].includes(view)){$('#summary').innerHTML='';$('#content').innerHTML=empty('Salvo na planilha ✓ Atualizando os valores da lista…');return;}
+  if(view==='express')renderExpress();
+  else if (view === 'mercadorias' || view === 'estoque') renderProducts();
   else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search,status:shipmentStatus}):empty('Atualize a conexão para consultar os envios.');}
   else if(view==='arquivados')renderTrash();
   else if(view==='anotacoes'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?notesView(state,{search,month:notesMonth}):empty('Conecte para carregar suas anotações.');}
@@ -282,6 +305,42 @@ function render() {
   }
   if(!writable)document.querySelectorAll('[data-action]').forEach(b=>{if(!['details-product','details-debt','note-copy','note-share','note-open','note-new','note-edit','note-template','filter-location','clear-filters'].includes(b.dataset.action))b.disabled=true;});
   setAlissonBalance(state.commission?.balanceCents || 0);
+}
+
+function renderExpress(){
+  $('#summary').innerHTML='';
+  const products=getExpressProducts(legacy,state);
+  // Keep the mounted form and focus when a background read completes.
+  if($('#express-form')){
+    const select=$('#express-product');select.innerHTML=expressProductOptions(products,select.value);
+    $('#express-empty').hidden=products.length>0;return;
+  }
+  $('#content').innerHTML=expressForm(products,expressDraft);
+  const form=$('#express-form'),message=$('#express-message'),copy=$('#express-copy'),share=$('#express-share'),feedback=$('#express-status');
+  const invalidate=()=>{message.value='';copy.disabled=true;share.disabled=true;feedback.textContent='';};
+  const remember=()=>{expressDraft=Object.fromEntries(new FormData(form));invalidate();try{localStorage.setItem(EXPRESS_DRAFT_KEY,JSON.stringify(expressDraft));}catch{feedback.textContent='Rascunho mantido nesta tela. Não foi possível guardá-lo no aparelho.';}};
+  form.addEventListener('input',remember);
+  $('#express-product').addEventListener('change',()=>{
+    const product=getExpressProducts(legacy,state).find(p=>p.key===$('#express-product').value);
+    $('#express-price').value=product?.priceCents?(product.priceCents/100).toFixed(2).replace('.',','):'';
+    $('#express-currency').value=product?.currency||'';
+    $('#express-specifications').value='';remember();
+  });
+  form.addEventListener('change',remember);
+  const generate=()=>{
+    try{message.value=buildExpressMessage(readExpressForm(getExpressProducts(legacy,state),new FormData(form)));copy.disabled=false;share.disabled=false;feedback.textContent='Confira a mensagem. Depois, copie ou compartilhe.';return message.value;}
+    catch(error){invalidate();feedback.textContent=error.message;return '';}
+  };
+  form.addEventListener('submit',e=>{e.preventDefault();generate();});
+  const send=async shareOnly=>{
+    const text=generate();if(!text)return;
+    try{
+      if(shareOnly&&navigator.share){await navigator.share({title:'Oferta · Puff',text});return;}
+      if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);feedback.textContent='Mensagem copiada. Cole na conversa com o cliente.';return;}
+    }catch(error){if(error.name==='AbortError')return;}
+    message.focus();message.select();message.setSelectionRange(0,text.length);feedback.textContent='Texto selecionado. Toque e segure para copiar e cole na conversa.';
+  };
+  copy.addEventListener('click',()=>send(false));share.addEventListener('click',()=>send(true));
 }
 
 function filteredLegacy(){return ['estoque','mercadorias','vendas','receber'].includes(view)?{...legacy,itens:legacy.itens.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter)}:legacy;}
@@ -398,6 +457,7 @@ function closeDialog() {
   if(saving){stoppedWaiting=true;for(const request of activeRequests)request.controller.abort();toast('A tentativa ficou guardada. Use Recuperar painel antes de registrar novamente.');}
   else if($('#save-dialog').disabled)return;
   $('#editor').close();
+  if(refreshAfterClose&&!saving&&!loading){refreshAfterClose=false;refreshPromise=load();}
 }
 
 function productForm(id, sourceNote) {
@@ -660,7 +720,7 @@ document.addEventListener('click',e=>{
   const help=e.target.closest('[data-help]');
   if(help){const topic=helpTopics[help.dataset.help];if(topic){$('#help-title').textContent=topic[0];$('#help-text').textContent=topic[1];$('#context-help').showModal();}return;}
   const nav=e.target.closest('[data-view],[data-section]');
-  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios'){shipmentMonth=today().slice(0,7);shipmentStatus='';}if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
+  if(nav){view=nav.dataset.view||({financeiro:'devedores',estoque:'estoque',express:'express',envios:'envios',anotacoes:'anotacoes'}[nav.dataset.section]);if(['estoque','mercadorias'].includes(view)){stockFilter=nav.dataset.stock||(view==='mercadorias'?'mercadorias':'');locationFilter=nav.dataset.location||'';categoryFilter='';$('#category-filter').value='';}if(view==='envios'){shipmentMonth=today().slice(0,7);shipmentStatus='';}if(view==='anotacoes')notesMonth=today().slice(0,7);search='';$('#search').value='';$('#more-sections').open=false;render();return;}
   const b=e.target.closest('[data-action]');if(!b||invalid)return;
   const {action:a,id,location}=b.dataset;
   try {
@@ -718,7 +778,7 @@ document.addEventListener('click',e=>{
   } catch(error){toast(error.message);}
 });
 $('#close-dialog').addEventListener('click',closeDialog);$('#cancel-dialog').addEventListener('click',closeDialog);
-$('#editor').addEventListener('cancel',e=>{if($('#save-dialog').disabled){e.preventDefault();closeDialog();}});
+$('#editor').addEventListener('cancel',e=>{e.preventDefault();closeDialog();});
 $('#editor-form').addEventListener('submit',async e=>{
   e.preventDefault();if(!dialogAction||$('#save-dialog').disabled)return;
   unlockSound();
@@ -729,7 +789,7 @@ $('#editor-form').addEventListener('submit',async e=>{
   finally{if(instance===dialogInstance){$('#save-dialog').disabled=false;$('#save-dialog').textContent=label;$('#cancel-dialog').textContent='Cancelar';}}
 });
 function exportBackup(){
-  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state,local:{pendingOperation,storedPending:storageRead(PENDING_KEY),legacyQueue:storageRead('fila'),noteDrafts:storageRead(NOTE_DRAFT_KEY)}},null,2);
+  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state,local:{pendingOperation,storedPending:storageRead(PENDING_KEY),legacyQueue:storageRead('fila'),noteDrafts:storageRead(NOTE_DRAFT_KEY),expressDraft:storageRead(EXPRESS_DRAFT_KEY)}},null,2);
   const url=URL.createObjectURL(new Blob([data ?? ''],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download=`painel-puff-backup-${today()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('Backup preparado para download.');
 }
@@ -743,11 +803,22 @@ $('#alisson-balance').addEventListener('click',()=>{
   const usd=value=>money(value,'USD');
   openDialog('Uma nobre causa: o café do Alisson ☕',`<p>📦 Você cuida do estoque. ☕ O Alisson cuida do café que mantém as ideias funcionando.</p><p class="dialog-summary">💰 Fundo do cafezinho <strong>${usd(commission.balanceCents)}</strong></p><p>❄️ Cada ar-condicionado vendido rende <strong>US$ 0,50 pro cafezinho</strong>. Clima fresco, café quentinho! ☕😄</p><p class="help">Somente unidades de ar-condicionado vendidas. Dívidas, recebimentos e outras mercadorias não entram. Contador informativo, sem transferência automática.</p>${commission.entries.length?`<h3>🤝 Quem abasteceu a cafeteira</h3><div class="payments">${commission.entries.slice(-10).reverse().map(entry=>`<div class="payment-row"><div><strong>${esc(entry.reason || 'Unidades registradas')}</strong><p class="meta">${esc(entry.units)} un. · ${esc(new Date(entry.createdAt).toLocaleDateString('pt-BR'))}</p></div><strong>${usd(entry.amountCents)}</strong></div>`).join('')}</div>`:'<p class="help">🚀 A cafeteira está pronta. O primeiro lançamento inaugura o fundo.</p>'}`,null,null);
 });
-window.addEventListener('storage',e=>{if([KEY,PENDING_KEY,'fila'].includes(e.key)){if(e.key===PENDING_KEY&&!saving)readPending();writable=false;stored++;syncMessage=pendingMessage()||'Outra aba atualizou o painel. Clique em Recuperar painel.';status(syncMessage);showSyncProblem();render();}});
+window.addEventListener('storage',e=>{
+  // A cached read in another tab is not a business change and must never lock this tab.
+  if(![PENDING_KEY,'fila'].includes(e.key))return;
+  externalRevision++;stored++;writable=false;
+  if(e.key===PENDING_KEY&&!saving)readPending();
+  syncMessage=pendingMessage()||'Outro acesso alterou os dados. Feche o formulário para atualizar a lista.';
+  status(syncMessage);showSyncProblem();render();refreshAfterClose=true;
+  if(!saving&&!loading&&!$('#editor').open&&!pendingOperation&&!pendingUnreadable){refreshAfterClose=false;refreshPromise=load();}
+});
 function resumeConnection(){
   if(document.hidden)return;
   for(const request of activeRequests)if(Date.now()>=request.deadline)request.controller.abort();
-  if(!saving&&!loading&&!$('#editor').open)refreshPromise=load();
+  if(saving||loading||$('#editor').open)return;
+  const now=Date.now();
+  if(writable&&now-lastSyncAt<60000||now-lastResumeAt<15000)return;
+  lastResumeAt=now;refreshAfterClose=false;refreshPromise=load();
 }
 window.addEventListener('pageshow',resumeConnection);window.addEventListener('online',resumeConnection);
 document.addEventListener('visibilitychange',resumeConnection);
