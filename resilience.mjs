@@ -1,4 +1,4 @@
-export const RELEASE = '2026-10-26-tabela';
+export const RELEASE = '2026-10-26-tabela-menu';
 const SEEN_KEY = 'painel-puff:release-seen';
 
 function deadline(promise, milliseconds=15000) {
