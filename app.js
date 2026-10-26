@@ -8,6 +8,7 @@ import { shipmentView, shipmentForm, shipmentItemFields } from './shipments.mjs'
 import { notesView, noteForm, shipmentNoteForm, noteToShipment, noteToDebt } from './notes.mjs';
 import { setupResilience } from './resilience.mjs';
 import { getExpressProducts, expressProductOptions, expressModelOptions, expressModelDetails, expressExactModel, expressForm, readExpressForm, buildExpressMessage } from './express.mjs';
+import { priceTableProducts, priceTableForm, readPriceTable, buildPriceTableText, buildPriceTableHTML } from './price-table.mjs';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -20,6 +21,9 @@ const KEY = 'painel-puff:cache:v2';
 const PENDING_KEY = 'painel-puff:pending:v2';
 const NOTE_DRAFT_KEY = 'painel-puff:note-drafts:v1';
 const EXPRESS_DRAFT_KEY = 'painel-puff:express-draft:v1';
+const PRICE_TABLE_DRAFT_KEY = 'painel-puff:price-table-draft:v1';
+let priceTableDraft={};
+try{const draft=JSON.parse(storageRead(PRICE_TABLE_DRAFT_KEY));if(draft&&typeof draft==='object'&&!Array.isArray(draft))priceTableDraft=Object.fromEntries(Object.entries(draft).slice(0,1000).filter(([key,value])=>key.length<1500&&typeof value==='string'&&value.length<=1000));}catch{}
 function storageRead(key) { try{return localStorage.getItem(key);}catch{return null;} }
 let expressDraft={};
 try{const draft=JSON.parse(storageRead(EXPRESS_DRAFT_KEY));for(const key of ['productKey','price','currency','customer','specifications','conditions','catalogModelId','catalogProductName'])if(typeof draft?.[key]==='string'&&draft[key].length<=600)expressDraft[key]=draft[key];}catch{}
@@ -213,6 +217,7 @@ const locationOptions = value => locations().map(l => `<option ${l === value ? '
 const stockName = p => p.stock === 'principal' ? 'Estoque principal' : 'Mercadorias';
 const headings = {
   express:['Venda Express','Monte a oferta e leve a mensagem pronta para o cliente.',''],
+  tabela:['Tabela para clientes','Só ar-condicionados. Escolha os modelos e os preços que quer oferecer.',''],
   mercadorias:['Mercadorias','Cada produto, seu saldo e tudo o que aconteceu.','+ Novo produto'],
   devedores:['Devedores','Anote o combinado. Registre cada pagamento.','+ Nova dívida'],
   estoque:['Estoque','Todos os produtos, cada estoque com a sua cor.','+ Novo produto'],
@@ -227,6 +232,7 @@ const headings = {
   arquivados:['Lixeira do estoque','Excluiu por engano? Restaure o item aqui.','']
 };
 const helpTopics = {
+  tabela:['Sua tabela de ar-condicionados','Marque os aparelhos e confira o preço e a moeda de cada um. Modelos iguais com o mesmo preço aparecem uma vez.\nGere a tabela para revisar, copiar no WhatsApp ou imprimir / salvar em PDF. No iPhone, a opção de PDF fica no compartilhamento da prévia de impressão.\nCustos, lucro, quantidade e dados de clientes não entram na tabela. Os preços ajustados aqui valem só para a oferta; o cadastro do estoque continua igual.'],
   express:['Sua oferta em poucos toques','Escolha o ar. Se o cadastro tiver o código exato, a ficha é preenchida; nos demais, escolha o modelo da Rio Paraná conferindo a etiqueta. Versões 110 V, 220 V, Inverter e convencional têm características diferentes.\nSem ficha confirmada, entram só os dados escritos no cadastro. Acrescente detalhes confirmados, informe o preço em reais ou dólares e gere a mensagem.\nO rascunho fica neste aparelho. A oferta não baixa o estoque: confirme a venda no Estoque quando fechar com o cliente.'],
   estoque: ['Encontre seus produtos', 'Todos reúne aparelhos e mercadorias. Estoque principal mostra os aparelhos; Mercadorias mostra produtos por quantidade.\nDepósito SP mostra o que tem saldo nesse local. Se algo sumir da lista, use Limpar filtros. Excluir guarda o item na Lixeira do estoque, sem registrar venda.'],
   mercadorias: ['Mercadorias por quantidade', 'Cadastre o produto uma vez. Use Entrada para somar unidades e Saída para registrar a venda e baixar o saldo.\nO lápis altera nome, foto, preço e observações. O histórico mostra as movimentações e permite transferir entre locais.'],
@@ -259,16 +265,16 @@ function render() {
   const [title,description,button] = headings[view];
   $('#page-title').textContent = view==='estoque'?(locationFilter==='Depósito SP'?'Depósito SP':stockFilter==='principal'?'Estoque principal':title):title; $('#page-description').textContent = description;
   $('#new-entry').textContent = button; $('#new-entry').hidden = !button; $('#new-entry').disabled = !writable && view !== 'anotacoes';
-  $('#summary').hidden=view==='express';$('.filter-bar').hidden=view==='express';
+  $('#summary').hidden=['express','tabela'].includes(view);$('.filter-bar').hidden=['express','tabela'].includes(view);
   $('#reconcile').hidden=!pendingOperation;
   const reference=state.settings||{};
   $('#exchange-rate').textContent=reference.fxRate?`R$ ⇄ US$ · ${String(reference.fxRate).replace('.',',')}`:'R$ ⇄ US$ · Câmbio';
   $('#exchange-rate').disabled=!writable;
   $('#exchange-note').textContent=reference.fxRate?`Câmbio informado: US$ 1 = R$ ${String(reference.fxRate).replace('.',',')} · ${dateBR(reference.fxDate)}`:'Valores em R$ e US$. Equivalências aparecem ao informar um câmbio.';
-  $('#exchange-note').hidden=['envios','anotacoes','express'].includes(view);
-  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['envios','anotacoes','express'].includes(view)?view:'';
+  $('#exchange-note').hidden=['envios','anotacoes','express','tabela'].includes(view);
+  const section=['estoque','mercadorias'].includes(view)?'estoque':['devedores','receber','vendas','gastos'].includes(view)?'financeiro':['express','tabela'].includes(view)?'express':['envios','anotacoes'].includes(view)?view:'';
   document.querySelectorAll('[data-section]').forEach(b=>{b.classList.toggle('active',b.dataset.section===section);b.setAttribute('aria-current',b.dataset.section===section?'page':'false');});
-  const sectionViews=section==='estoque'?[['estoque','Todos','',''],['estoque','Estoque principal','principal',''],['mercadorias','Mercadorias','mercadorias',''],['estoque','Depósito SP','','Depósito SP']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:[];
+  const sectionViews=section==='estoque'?[['estoque','Todos','',''],['estoque','Estoque principal','principal',''],['mercadorias','Mercadorias','mercadorias',''],['estoque','Depósito SP','','Depósito SP']]:section==='financeiro'?[['devedores','Devedores'],['receber','A receber'],['vendas','Vendas'],['gastos','Gastos']]:section==='express'?[['express','Oferta individual'],['tabela','Tabela para clientes']]:[];
   $('#section-tabs').innerHTML=sectionViews.map(([name,label,stock,local])=>`<button type="button" data-view="${name}"${stock!==undefined?` data-stock="${stock}" data-location="${local}"`:''}>${label}</button>`).join('');
   $('#section-tabs').classList.toggle('stock-tabs',section==='estoque');
   $('#section-tabs').hidden=!sectionViews.length;
@@ -276,7 +282,7 @@ function render() {
   $('#stock-trash').hidden=!['estoque','mercadorias'].includes(view);
   $('#search').placeholder=view==='anotacoes'?'Buscar nas anotações':view==='envios'?'Buscar cliente, transporte ou mercadoria':'Buscar produto, cliente ou observação';
   $('#search').setAttribute('aria-label',$('#search').placeholder);
-  $('#search').closest('label').hidden = ['decisao','express'].includes(view);
+  $('#search').closest('label').hidden = ['decisao','express','tabela'].includes(view);
   $('#location-filter').closest('label').hidden = !['estoque','mercadorias'].includes(view);
   $('#category-filter').closest('label').hidden = !['estoque','mercadorias','vendas','receber','decisao'].includes(view);
   $('#filter-options').hidden=!['estoque','mercadorias','vendas','receber','decisao'].includes(view);
@@ -287,8 +293,9 @@ function render() {
   $('#active-filters').innerHTML=activeFilters.map(label=>`<span class="chip">${esc(label)}</span>`).join('')+(activeFilters.length?'<button type="button" class="ghost" data-action="clear-filters">Limpar filtros</button>':'');
   $('#location-filter').innerHTML='<option value="">Todos os locais</option>'+locationOptions(locationFilter);$('#location-filter').value=locationFilter;
   document.querySelectorAll('[data-view]').forEach(b => { const active=b.dataset.view===view&&(b.dataset.stock===undefined||b.dataset.stock===stockFilter&&b.dataset.location===locationFilter);b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false'); });
-  if(awaitingSavedSnapshot&&loading&&!['anotacoes','express'].includes(view)){$('#summary').innerHTML='';$('#content').innerHTML=empty('Salvo na planilha ✓ Atualizando os valores da lista…');return;}
+  if(awaitingSavedSnapshot&&loading&&!['anotacoes','express','tabela'].includes(view)){$('#summary').innerHTML='';$('#content').innerHTML=empty('Salvo na planilha ✓ Atualizando os valores da lista…');return;}
   if(view==='express')renderExpress();
+  else if(view==='tabela')renderPriceTable();
   else if (view === 'mercadorias' || view === 'estoque') renderProducts();
   else if(view==='envios'){$('#summary').innerHTML='';$('#content').innerHTML=modulesLoaded?shipmentView(state,{month:shipmentMonth,search,status:shipmentStatus}):empty('Atualize a conexão para consultar os envios.');}
   else if(view==='arquivados')renderTrash();
@@ -357,6 +364,41 @@ function renderExpress(){
     message.focus();message.select();message.setSelectionRange(0,text.length);feedback.textContent='Texto selecionado. Toque e segure para copiar e cole na conversa.';
   };
   copy.addEventListener('click',()=>send(false));share.addEventListener('click',()=>send(true));
+}
+
+function renderPriceTable(){
+  $('#summary').innerHTML='';
+  if($('#price-table-form'))return; // Preserve focus and draft while the stock refreshes.
+  $('#content').innerHTML=priceTableForm(priceTableProducts(legacy,state),priceTableDraft);
+  const form=$('#price-table-form'),message=$('#price-table-message'),preview=$('#price-table-preview'),feedback=$('#price-table-status');
+  const copy=$('#price-table-copy'),share=$('#price-table-share'),print=$('#price-table-print');
+  let previewReady=false;
+  const invalidate=()=>{message.value='';preview.hidden=true;copy.disabled=true;share.disabled=true;print.disabled=true;preview.onload=null;feedback.textContent='';};
+  const remember=()=>{priceTableDraft=Object.fromEntries(new FormData(form));invalidate();try{localStorage.setItem(PRICE_TABLE_DRAFT_KEY,JSON.stringify(priceTableDraft));}catch{feedback.textContent='Rascunho mantido nesta tela. Não foi possível guardá-lo no aparelho.';}};
+  form.addEventListener('input',remember);form.addEventListener('change',remember);
+  $('#price-table-reload').addEventListener('click',()=>{remember();$('#content').innerHTML='';renderPriceTable();});
+  const generate=(printing=false)=>{
+    try{
+      const data=readPriceTable(priceTableProducts(legacy,state),new FormData(form));
+      const html=buildPriceTableHTML(data,dateBR(today()));
+      message.value=buildPriceTableText(data);copy.disabled=false;share.disabled=false;preview.hidden=false;
+      feedback.textContent='Tabela pronta. Confira os modelos, preços e condições antes de enviar.';
+      const printNow=()=>{try{preview.contentWindow.focus();preview.contentWindow.print();}catch{feedback.textContent='Não foi possível abrir a impressão. Use Copiar tabela ou Compartilhar texto.';}};
+      if(preview.srcdoc!==html||!previewReady){previewReady=false;print.disabled=true;preview.onload=()=>{previewReady=true;print.disabled=false;if(printing)printNow();};preview.srcdoc=html;}
+      else {print.disabled=false;if(printing)printNow();}
+      return message.value;
+    }catch(error){invalidate();feedback.textContent=error.message;return '';}
+  };
+  form.addEventListener('submit',event=>{event.preventDefault();generate();});
+  const send=async sharing=>{
+    const text=generate();if(!text)return;
+    try{
+      if(sharing&&navigator.share){await navigator.share({title:'Tabela de ar-condicionados · Puff',text});return;}
+      if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);feedback.textContent='Tabela copiada. Cole na conversa com o cliente.';return;}
+    }catch(error){if(error.name==='AbortError')return;}
+    message.focus();message.select();message.setSelectionRange(0,text.length);feedback.textContent='Texto selecionado. Toque e segure para copiar.';
+  };
+  copy.addEventListener('click',()=>send(false));share.addEventListener('click',()=>send(true));print.addEventListener('click',()=>generate(true));
 }
 
 function filteredLegacy(){return ['estoque','mercadorias','vendas','receber'].includes(view)?{...legacy,itens:legacy.itens.filter(p=>!categoryFilter||classifyCategory(p)===categoryFilter)}:legacy;}
@@ -438,13 +480,15 @@ function shipmentTrash(id,restore=false) {
 }
 
 function renderDebts() {
-  const debts = state.debts.filter(d => !d.deletedAt && matches(d.name,d.description,d.notes));
-  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Dívidas em aberto',debts.filter(d=>debtBalance(d)>0).length)}</div>`;
-  $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map(d=>{
+  const debts = state.debts.filter(d => !d.deletedAt && matches(d.name,d.description,d.notes)).sort((a,b)=>Number(debtBalance(a)===0)-Number(debtBalance(b)===0));
+  const openCount = debts.filter(d=>debtBalance(d)>0).length;
+  $('#summary').innerHTML = `<div class="summary-strip">${stat('Saldo a receber',moneyTotals(debts,debtBalance))}${stat('Abatido das dívidas',moneyTotals(debts,d=>d.totalCents-debtBalance(d)),'success')}${stat('Dívidas em aberto',openCount)}</div>`;
+  $('#content').innerHTML = debts.length ? `<div class="debt-list">${debts.map((d,index)=>{
     const remaining = debtBalance(d), paid = d.totalCents-remaining, payments = d.payments.filter(p=>!p.deletedAt);
     const late = remaining > 0 && d.dueDate && d.dueDate < today();
     const hue=remaining?0:150;
-    return `<article class="debt-card debt-progress-color ${remaining?'debt-open':'debt-settled'}" style="--debt-hue:${Math.round(hue)}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
+    const heading = index===0 || index===openCount ? `<h2 class="section-title">${remaining?'Em aberto':'Quitados'} · ${remaining?openCount:debts.length-openCount}</h2>` : '';
+    return `${heading}<article class="debt-card debt-progress-color ${remaining?'debt-open':'debt-settled'}" style="--debt-hue:${Math.round(hue)}"><div class="debt-top"><div><div class="debt-person"><span class="avatar" aria-hidden="true">${esc(d.name.slice(0,1))}</span><div><h2>${esc(d.name)}</h2><p class="meta">${esc(d.description)}</p></div></div></div><span class="badge ${remaining===0?'good':'danger'}">${remaining===0?'Quitado':late?'Vencido':paid?'Pagamento parcial':'Em aberto'}</span></div>
       <div class="debt-amount"><span class="meta">Falta receber</span><strong>${moneyHTML(remaining,d,state.settings)}</strong></div>
       <div class="debt-progress" role="progressbar" aria-label="Valor recebido" aria-valuemin="0" aria-valuemax="${d.totalCents}" aria-valuenow="${paid}" aria-valuetext="${esc(money(paid,d.currency))} de ${esc(money(d.totalCents,d.currency))}"><span style="width:${paid/d.totalCents*100}%"></span></div>
       <div class="payment-row"><span class="meta">Abatido <b>${money(paid,d.currency)}</b></span><span class="meta">Total ${money(d.totalCents,d.currency)}</span></div>
@@ -805,7 +849,7 @@ $('#editor-form').addEventListener('submit',async e=>{
   finally{if(instance===dialogInstance){$('#save-dialog').disabled=false;$('#save-dialog').textContent=label;$('#cancel-dialog').textContent='Cancelar';}}
 });
 function exportBackup(){
-  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state,local:{pendingOperation,storedPending:storageRead(PENDING_KEY),legacyQueue:storageRead('fila'),noteDrafts:storageRead(NOTE_DRAFT_KEY),expressDraft:storageRead(EXPRESS_DRAFT_KEY)}},null,2);
+  const data=JSON.stringify({format:'painel-puff-backup-v2',exportedAt:new Date().toISOString(),synced:writable,legacy,modules:state,local:{pendingOperation,storedPending:storageRead(PENDING_KEY),legacyQueue:storageRead('fila'),noteDrafts:storageRead(NOTE_DRAFT_KEY),expressDraft:storageRead(EXPRESS_DRAFT_KEY),priceTableDraft:storageRead(PRICE_TABLE_DRAFT_KEY)}},null,2);
   const url=URL.createObjectURL(new Blob([data ?? ''],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download=`painel-puff-backup-${today()}.json`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('Backup preparado para download.');
 }
@@ -840,5 +884,6 @@ window.addEventListener('pageshow',resumeConnection);window.addEventListener('on
 document.addEventListener('visibilitychange',resumeConnection);
 resilience=setupResilience({busy:()=>saving||loading,openForm:()=>$('#editor').open,recover:()=>pendingOperation?reconcile():load()});
 setupFeedback();render();load();
+
 
 

@@ -1,4 +1,4 @@
-export const RELEASE = '2026-10-24-modelos';
+export const RELEASE = '2026-10-26-tabela';
 const SEEN_KEY = 'painel-puff:release-seen';
 
 function deadline(promise, milliseconds=15000) {
@@ -10,7 +10,7 @@ export function setupResilience({busy,openForm,recover}) {
   const $=selector=>document.querySelector(selector);
   let registration, seen=false, reloadPending=false;
   try{seen=localStorage.getItem(SEEN_KEY)===RELEASE;}catch{}
-  $('#app-version').textContent='Versão · 24/10/2026';
+  $('#app-version').textContent='Versão · 26/10/2026';
   const message=text=>{$('#repair-status').textContent=text;};
   const safe=()=>{
     if(busy()){message('Há uma operação em andamento. Aguarde ou use “Sair e conferir depois” no formulário antes de atualizar o app.');return false;}

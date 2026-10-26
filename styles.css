@@ -590,6 +590,31 @@ dialog::backdrop { background: #030815ba; }
 #express-status:empty { display: none; }
 @media(max-width:760px) { .express-layout { grid-template-columns: minmax(0,1fr); gap: 24px; } }
 @media(max-width:540px) { .main-tabs .express-shortcut { white-space: normal; } .express-preview { padding: 16px; } }
+.price-table-panel > .help { max-width: 72ch; margin-top: 0; }
+#price-table-reload { margin-bottom: 22px; }
+#price-table-form > label { display: block; max-width: 720px; margin-bottom: 22px; }
+.price-table-panel label { font-size: 13px; font-weight: 650; }
+.price-table-panel input, .price-table-panel select, .price-table-panel textarea { font-size: 16px; }
+.price-table-panel label > input, .price-table-panel label > select, .price-table-panel label > textarea { margin-top: 7px; }
+.price-table-products { margin: 12px 0 24px; border-top: 1px solid var(--line); }
+.price-table-row { display: grid; grid-template-columns: 155px minmax(0,1fr) 160px 140px; align-items: center; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.price-table-row > label { min-width: 0; }
+.price-table-select { display: flex; align-items: center; gap: 9px; min-height: 44px; cursor: pointer; }
+.price-table-select input { flex: none; margin: 0 !important; }
+.price-table-model input { background: transparent; border-color: var(--line); }
+.price-table-unavailable { color: #ffb7bb; }
+.price-table-warning { grid-column: 1 / -1; margin: 0; }
+#price-table-preview { width: 100%; height: 530px; margin: 30px 0 20px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+#price-table-message { min-height: 170px; margin-bottom: 12px; }
+.price-table-actions { flex-wrap: wrap; }
+.price-table-actions button { flex: 1 1 160px; }
+#price-table-status:empty { display: none; }
+@media(max-width:760px) {
+  .price-table-row { grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 12px 14px; }
+  .price-table-select, .price-table-model { grid-column: 1 / -1; }
+  .price-table-select { min-height: 32px; }
+  #price-table-preview { height: 480px; }
+}
 
 /* Keep recovery messages below the iPhone sensor area and menu labels within their cells. */
 .preview-notice { padding-top: calc(8px + env(safe-area-inset-top, 0px)); font-size: 11px; line-height: 1.45; }
